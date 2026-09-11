@@ -122,6 +122,14 @@ The output directory contains:
 - AI proposer interface: a learned graph/Transformer/RL proposer can replace
   the heuristic proposer without changing the optimizer or output layer
 - Frequency-domain MNA simulator for linear R/C/L circuit graphs
+- Nonlinear devices with a DC operating point and small-signal AC analysis:
+  Newton iteration on conductance stamps, junction step limiting, a separate
+  internal node per device with series resistance, and a verified junction diode
+  (Shockley forward/reverse branches, reverse breakdown, series resistance,
+  depletion and diffusion capacitance, temperature scaling). Agreement with
+  ngspice is measured, not asserted: 1.5e-5 V on the forward characteristic,
+  1.8e-5 V across -40 to 150 C, and 8e-5 V on a 1 kHz to 10 GHz small-signal
+  sweep including junction capacitance and transit time
 - Current-source AC excitation and transimpedance analysis for TIA-style current-input circuits
 - Output-impedance analysis and a minimum output-termination topology for matching stages
 - PBDL multi-stage planner that splits complex port specs into supported synthesis stages and explicit unsupported stages
@@ -220,8 +228,51 @@ runs AC simulation, parses ASCII raw output, and adds `spice_verification` to
 `report.json`.  If ngspice is unavailable, the report marks the verification as
 `unavailable` rather than pretending the external gate passed.
 
+Availability is not a `PATH` lookup. `circuit_ai/spice_discovery.py` searches an
+explicit path, then `LATTICE_NGSPICE` / `CIRCUIT_AI_NGSPICE`, then `PATH`, then
+known install and bundle locations — a bundled copy is a normal packaging shape,
+not an absence. The discovery only stats files and never executes them, because a
+GUI-capable binary handed an argument it does not understand opens a window
+instead of reporting an error.
+
 The same gate can be enabled from JSON via
 `optimization.spice_verification.enabled`.
+
+## Nonlinear devices and small-signal analysis
+
+`circuit_ai/devices.py` holds device models; `circuit_ai/nonlinear.py` solves
+them. Both the DC operating point (Newton iteration on conductance stamps, with
+junction step limiting and convergence reported rather than assumed) and the
+small-signal AC response (each device linearised at that operating point) come
+from one model definition, so the two cannot drift apart.
+
+```python
+from circuit_ai.devices import Diode, DiodeParameters
+from circuit_ai.mna import LinearCircuit, LinearElement, VoltageSource
+from circuit_ai.nonlinear import NonlinearMNA
+
+circuit = LinearCircuit(
+    elements=(LinearElement("R1", "R", "in", "a", 1000.0),),
+    voltage_sources=(VoltageSource("V1", "in", "0", complex(0.6)),),
+)
+sim = NonlinearMNA(circuit, [Diode("D1", "a", "0")])
+bias = sim.operating_point()                      # -> 0.5669272 V at node "a"
+sweep = sim.solve_ac(np.logspace(0, 9, 181), operating_point=bias)
+```
+
+A device with series resistance carries its junction on a matrix node of its own.
+That is not an implementation detail: folding the resistance into an effective
+terminal conductance is exact at DC and **68 % wrong at 10 GHz**, because the
+folded form has no path for displacement current to bypass the resistance.
+
+What is verified, and what is not: the diode's forward, reverse, temperature,
+series-resistance, capacitance and breakdown-slope behaviour is checked against
+measured ngspice responses in `tests/test_nonlinear_devices.py`. The reference's
+*knee-voltage adjustment* for breakdown is not reproduced, and the tests say so
+rather than hiding it behind a loose tolerance. No other device kind exists yet —
+no BJT, MOSFET, op-amp or current mirror — so any active circuit beyond a diode
+is out of reach, and nothing here has been checked by any tool other than
+ngspice.
 
 ## Differentiable circuit refinement
 

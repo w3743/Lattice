@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 import numpy as np
-
 
 GROUND_NAMES = {"0", "gnd", "GND"}
 
@@ -60,7 +59,14 @@ class LinearCircuit:
         for source in self.current_sources:
             seen.update([source.n_plus, source.n_minus])
         for source in self.controlled_voltage_sources:
-            seen.update([source.n_plus, source.n_minus, source.control_plus, source.control_minus])
+            seen.update(
+                [
+                    source.n_plus,
+                    source.n_minus,
+                    source.control_plus,
+                    source.control_minus,
+                ]
+            )
         return tuple(sorted(node for node in seen if node not in GROUND_NAMES))
 
 
@@ -144,7 +150,7 @@ class CompiledLinearMNA:
     topology_signature: tuple[tuple[str, ...], ...]
 
     @classmethod
-    def compile(cls, circuit: LinearCircuit) -> "CompiledLinearMNA":
+    def compile(cls, circuit: LinearCircuit) -> CompiledLinearMNA:
         nodes = circuit.nodes()
         node_index = {node: idx for idx, node in enumerate(nodes)}
         source_index = {
@@ -165,6 +171,38 @@ class CompiledLinearMNA:
             topology_signature=linear_topology_signature(circuit),
         )
 
+    def with_internal_nodes(self, names: Iterable[str]) -> CompiledLinearMNA:
+        """Return a plan with extra nodes appended to the linear topology.
+
+        A device that is not two-terminal internally -- a junction behind a
+        series resistance, say -- cannot be represented by a single conductance
+        between its terminals.  Folding the internal resistance into an effective
+        terminal conductance is exact at DC and wrong above a few hundred MHz: the
+        folded form has no path for displacement current to bypass the resistance,
+        so it loses the real part of the terminal impedance entirely and is in
+        error by 68 % at 10 GHz on a biased diode.  Carrying the internal node is
+        what the reference does, and carrying it here costs one extra row.
+
+        The appended indices come after every node and branch of the linear
+        circuit, so the existing node and branch index maps keep their values and
+        the linear solution path is untouched.
+        """
+
+        extra = [name for name in names if name not in self.node_index]
+        if not extra:
+            return self
+        offset = self.size
+        node_index = dict(self.node_index)
+        for index, name in enumerate(extra):
+            node_index[name] = offset + index
+        return CompiledLinearMNA(
+            node_index=node_index,
+            source_index=self.source_index,
+            controlled_source_index=self.controlled_source_index,
+            size=self.size + len(extra),
+            topology_signature=self.topology_signature,
+        )
+
     def solve_ac(
         self,
         circuit: LinearCircuit,
@@ -177,47 +215,9 @@ class CompiledLinearMNA:
             raise ValueError("frequencies_hz must be a non-empty one-dimensional array")
 
         s = 2j * np.pi * frequencies
-        matrices = np.zeros((len(frequencies), self.size, self.size), dtype=np.complex128)
-        rhs = np.zeros((len(frequencies), self.size), dtype=np.complex128)
-
-        for element in circuit.elements:
-            y = _admittance_vector(element, s)
-            a = _node(self.node_index, element.n1)
-            b = _node(self.node_index, element.n2)
-            if a is not None:
-                matrices[:, a, a] += y
-            if b is not None:
-                matrices[:, b, b] += y
-            if a is not None and b is not None:
-                matrices[:, a, b] -= y
-                matrices[:, b, a] -= y
-
-        for source in circuit.voltage_sources:
-            row = self.source_index[source.name]
-            _stamp_voltage_branch_batch(
-                matrices, self.node_index, row, source.n_plus, source.n_minus
-            )
-            rhs[:, row] = source.value
-
-        for source in circuit.current_sources:
-            p = _node(self.node_index, source.n_plus)
-            m = _node(self.node_index, source.n_minus)
-            if p is not None:
-                rhs[:, p] -= source.value
-            if m is not None:
-                rhs[:, m] += source.value
-
-        for source in circuit.controlled_voltage_sources:
-            row = self.controlled_source_index[source.name]
-            _stamp_voltage_branch_batch(
-                matrices, self.node_index, row, source.n_plus, source.n_minus
-            )
-            cp = _node(self.node_index, source.control_plus)
-            cm = _node(self.node_index, source.control_minus)
-            if cp is not None:
-                matrices[:, row, cp] -= source.gain
-            if cm is not None:
-                matrices[:, row, cm] += source.gain
+        matrices, rhs = assemble_system(
+            circuit, self.node_index, self.source_index, self.controlled_source_index, s
+        )
 
         # NumPy >= 2 treats ``b`` as a stack of core-(m, n) matrices, so a bare
         # ``(n_freq, size)`` RHS is misread as ``(m, n) = (n_freq, size)`` and
@@ -233,6 +233,77 @@ class CompiledLinearMNA:
 
     def _signature(self, circuit: LinearCircuit) -> tuple[tuple[str, ...], ...]:
         return linear_topology_signature(circuit)
+
+
+def assemble_system(
+    circuit: LinearCircuit,
+    node_index: Mapping[str, int],
+    source_index: Mapping[str, int],
+    controlled_source_index: Mapping[str, int],
+    s: np.ndarray,
+    *,
+    size: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Stamp *circuit* into batched MNA matrices and a right-hand side.
+
+    ``s`` is the complex frequency, one entry per solution requested; ``s = 0``
+    therefore assembles the resistive system a DC operating point solves, with
+    capacitors open and inductors shorted, without a separate code path.
+
+    The stamping order and the arithmetic are the ones the linear solver has
+    always used, because a golden characterisation of the existing families
+    depends on it bit for bit.  This function exists so that the nonlinear solver
+    can share that order rather than reimplement it and drift.
+    """
+
+    s = np.asarray(s, dtype=np.complex128)
+    if s.ndim == 0:
+        s = s.reshape(1)
+    if size is None:
+        size = len(node_index) + len(source_index) + len(controlled_source_index)
+    matrices = np.zeros((s.shape[0], size, size), dtype=np.complex128)
+    rhs = np.zeros((s.shape[0], size), dtype=np.complex128)
+
+    for element in circuit.elements:
+        y = _admittance_vector(element, s)
+        a = _node(node_index, element.n1)
+        b = _node(node_index, element.n2)
+        if a is not None:
+            matrices[:, a, a] += y
+        if b is not None:
+            matrices[:, b, b] += y
+        if a is not None and b is not None:
+            matrices[:, a, b] -= y
+            matrices[:, b, a] -= y
+
+    for source in circuit.voltage_sources:
+        row = source_index[source.name]
+        _stamp_voltage_branch_batch(
+            matrices, node_index, row, source.n_plus, source.n_minus
+        )
+        rhs[:, row] = source.value
+
+    for source in circuit.current_sources:
+        p = _node(node_index, source.n_plus)
+        m = _node(node_index, source.n_minus)
+        if p is not None:
+            rhs[:, p] -= source.value
+        if m is not None:
+            rhs[:, m] += source.value
+
+    for source in circuit.controlled_voltage_sources:
+        row = controlled_source_index[source.name]
+        _stamp_voltage_branch_batch(
+            matrices, node_index, row, source.n_plus, source.n_minus
+        )
+        cp = _node(node_index, source.control_plus)
+        cm = _node(node_index, source.control_minus)
+        if cp is not None:
+            matrices[:, row, cp] -= source.gain
+        if cm is not None:
+            matrices[:, row, cm] += source.gain
+
+    return matrices, rhs
 
 
 def admittance(element: LinearElement, s: complex) -> complex:
@@ -290,8 +361,9 @@ class MNASimulator:
 
     This is intentionally compact but real: it stamps R/C/L elements and ideal
     independent voltage sources into the MNA matrix and solves the linear system.
-    Future work can add controlled sources, op-amps, nonlinear Newton iterations,
-    and differentiable JAX versions behind the same conceptual interface.
+    Controlled sources are supported through :class:`VoltageControlledVoltageSource`.
+    Nonlinear devices are handled by :mod:`circuit_ai.nonlinear`, which reuses the
+    assembly in :func:`assemble_system` rather than duplicating it.
     """
 
     def solve_ac(
@@ -333,7 +405,9 @@ class MNASimulator:
         if source.value == 0:
             raise ValueError("source value must be nonzero for transfer calculation")
         solutions = self.solve_ac(circuit, frequencies_hz)
-        return np.asarray([solution.get(output_node, 0.0) / source.value for solution in solutions])
+        return np.asarray(
+            [solution.get(output_node, 0.0) / source.value for solution in solutions]
+        )
 
     @staticmethod
     def _node(node_index: dict[str, int], name: str) -> int | None:
@@ -367,7 +441,9 @@ class MNASimulator:
         row: int,
         source: VoltageSource,
     ) -> None:
-        self._stamp_voltage_branch(matrix, node_index, row, source.n_plus, source.n_minus)
+        self._stamp_voltage_branch(
+            matrix, node_index, row, source.n_plus, source.n_minus
+        )
         rhs[row] = source.value
 
     def _stamp_current_source(
@@ -390,7 +466,9 @@ class MNASimulator:
         row: int,
         source: VoltageControlledVoltageSource,
     ) -> None:
-        self._stamp_voltage_branch(matrix, node_index, row, source.n_plus, source.n_minus)
+        self._stamp_voltage_branch(
+            matrix, node_index, row, source.n_plus, source.n_minus
+        )
         cp = self._node(node_index, source.control_plus)
         cm = self._node(node_index, source.control_minus)
         if cp is not None:
