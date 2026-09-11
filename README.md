@@ -269,6 +269,54 @@ When `optimization.robustness.enabled` is true, `report.json` includes yield,
 finite-response fraction, P95 error, and worst-case error under randomized
 component tolerance perturbations.
 
+## Loss model, operating envelope, and worst-case analysis
+
+A requirement is rarely a single point. Two optional spec blocks let a design be
+sized against a range and judged on real efficiency instead of an idealised 1.0:
+
+```json
+{
+  "operating_envelope": {
+    "min_input_voltage_v": 24, "max_input_voltage_v": 48,
+    "min_load_fraction": 0.1, "max_load_fraction": 1.0
+  },
+  "optimization": {
+    "loss_model": { "enabled": true },
+    "weights": { "efficiency": 3.0 },
+    "design_corner": { "rail": "input_min" },
+    "worst_case": { "output_tolerance_fraction": 0.05 }
+  }
+}
+```
+
+- **`loss_model`** switches the ideal averaged stages from `efficiency == 1.0`
+  to a parameterised estimate: switch and inductor conduction, rectifier drop,
+  switching transition, switch capacitance, and output-capacitor ESR. Without it
+  "maximise efficiency" is a no-op, because nothing is lost to trade against.
+  Core loss is **not** modelled and the record says so
+  (`core_loss_modelled: false`).
+- **`operating_envelope`** declares the range to survive. `report.json` then
+  carries `worst_case`: minimum efficiency, maximum loss, maximum input current,
+  duty range, maximum ripple and the delivered rail's full spread, each naming
+  the corner responsible, plus `regulates` and per-corner violations against a
+  target and tolerance.
+- **`design_corner.rail`** chooses where the duty cycle is scheduled:
+  `nominal` (default, historical behaviour), `input_min`, `input_max` or
+  `geometric_mean`. This is a real trade-off, not a preference: with no feedback
+  loop no fixed ratio holds a target across a wide range. On a 2:1 input range,
+  `nominal` droops below target at low line, `input_min` makes the target exact
+  at low line and overshoots everywhere above it, and `geometric_mean` makes the
+  worst deviation symmetric in ratio terms.
+- **`regulates` is `null` when no target is given**, never `true`. "Not checked"
+  is never reported as "passed".
+
+Omitting both blocks reproduces the previous behaviour byte for byte:
+`operating_envelope` and `worst_case` are `null`.
+
+A design that cannot hold its output across its envelope needs a control loop,
+which this project does not model. The envelope report makes that visible rather
+than letting a nominal-only figure stand in for the result.
+
 ## Bounded minimum-component search
 
 ```powershell

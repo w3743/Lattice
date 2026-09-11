@@ -574,6 +574,7 @@ class BoostParameterOptimizer:
             raise ValueError("ideal boost optimization needs positive vin, vout > vin and output current")
         duty_target = 1.0 - vin / vout
         loss_parameters = _loss_model_for(ir)
+        design_rail, _rail_name = _design_corner_rail(ir, vin)
         params, dc, run = _optimize_four_parameter_converter(
             ir,
             vin,
@@ -584,6 +585,7 @@ class BoostParameterOptimizer:
             "dc_boost",
             exact_duty=lambda rail, out: _exact_duty_for_ratio(out, rail),
             loss_parameters=loss_parameters,
+            design_rail_v=design_rail if loss_parameters is not None else None,
         )
         transient = simulate_ideal_boost(vin, params)
         return BoostOptimizationResult(
@@ -611,6 +613,8 @@ class BuckParameterOptimizer:
         if vout >= vin:
             raise ValueError("ideal buck optimization needs output voltage below input voltage")
         duty_target = vout / vin
+        loss_parameters = _loss_model_for(ir)
+        design_rail, _rail_name = _design_corner_rail(ir, vin)
         params, dc, result = _optimize_four_parameter_converter(
             ir,
             vin,
@@ -621,7 +625,8 @@ class BuckParameterOptimizer:
             "dc_buck",
             # The buck ratio is exact and linear: vout = vin * d.
             exact_duty=lambda rail, out: out / rail,
-            loss_parameters=_loss_model_for(ir),
+            loss_parameters=loss_parameters,
+            design_rail_v=design_rail if loss_parameters is not None else None,
         )
         transient = simulate_ideal_averaged_converter(vin, params, solve_ideal_buck_dc)
         return BuckOptimizationResult(
@@ -647,6 +652,8 @@ class SepicParameterOptimizer:
     def optimize(self, ir: UnifiedIR, candidate: TopologyCandidate) -> SepicOptimizationResult:
         vin, vout, iout = _target_power_values(ir)
         duty_target = vout / (vin + vout)
+        loss_parameters = _loss_model_for(ir)
+        design_rail, _rail_name = _design_corner_rail(ir, vin)
         params, dc, result = _optimize_four_parameter_converter(
             ir,
             vin,
@@ -657,7 +664,8 @@ class SepicParameterOptimizer:
             "dc_sepic",
             # vout = vin * d / (1 - d), i.e. gain = 1 (the `vin` argument is the rail).
             exact_duty=lambda rail, out: _exact_duty_for_ratio(out, rail),
-            loss_parameters=_loss_model_for(ir),
+            loss_parameters=loss_parameters,
+            design_rail_v=design_rail if loss_parameters is not None else None,
         )
         transient = simulate_ideal_averaged_converter(vin, params, solve_ideal_sepic_dc)
         return SepicOptimizationResult(
@@ -702,10 +710,14 @@ class FlybackParameterOptimizer:
         ripple_limit = float(target.get("ripple_mv") or float("inf"))
         loss_parameters = _loss_model_for(ir)
         bounds = _loss_aware_frequency_bounds(bounds, loss_parameters=loss_parameters)
+        # The rail the design is scheduled at: the conversion ratio is worst at
+        # low line, so sizing there is what lets the target be reached across the
+        # whole input range instead of only at nominal.
+        design_rail, _rail_name = _design_corner_rail(ir, vin)
         # With a loss model the conversion ratio is pinned per choice of turns
         # ratio, so the duty cycle is solved for rather than searched.
         fixed_duty = (
-            _exact_duty_for_ratio(vout, vin, gain=initial_ratio)
+            _exact_duty_for_ratio(vout, design_rail, gain=initial_ratio)
             if loss_parameters is not None
             else None
         )
@@ -725,10 +737,13 @@ class FlybackParameterOptimizer:
             params = flyback_parameters_from_values(values, load)
             if loss_parameters is None:
                 return solve_ideal_flyback_dc(vin, params)
-            # The duty cycle must track the candidate's own turns ratio.
-            duty = _exact_duty_for_ratio(vout, vin, gain=params.turns_ratio)
+            # The duty cycle must track the candidate's own turns ratio at the
+            # rail the design is scheduled at.
+            duty = _exact_duty_for_ratio(vout, design_rail, gain=params.turns_ratio)
             tracked = replace(params, duty_cycle=duty)
-            return solve_ideal_flyback_dc(vin, tracked, loss_parameters=loss_parameters)
+            return solve_ideal_flyback_dc(
+                design_rail, tracked, loss_parameters=loss_parameters
+            )
 
         def evaluate(values) -> float:
             return objective(values, solve_stage(values))
@@ -751,7 +766,8 @@ class FlybackParameterOptimizer:
         params = flyback_parameters_from_values(run.values, load)
         if loss_parameters is not None:
             params = replace(
-                params, duty_cycle=_exact_duty_for_ratio(vout, vin, gain=params.turns_ratio)
+                params,
+                duty_cycle=_exact_duty_for_ratio(vout, design_rail, gain=params.turns_ratio),
             )
         dc = solve_ideal_flyback_dc(
             vin, params, loss_parameters=loss_parameters
@@ -875,6 +891,48 @@ def _exact_duty_for_ratio(vout: float, vin: float, *, offset: float = 0.0, gain:
     if not 0.0 < duty < 1.0:
         raise ValueError(f"conversion ratio yields an unrealisable duty cycle {duty!r}")
     return duty
+
+
+#: Rails a design can be scheduled at.  ``nominal`` reproduces the historical
+#: behaviour exactly; the extremes exist because a converter that only meets its
+#: target at nominal does not meet it at all in the field.
+#:
+#: ``geometric_mean`` is the interesting one.  A fixed-ratio design's output
+#: scales with input, so scheduling at ``input_min`` makes the target exact at
+#: low line and too high everywhere above it.  Centring the ratio instead
+#: minimises the *worst* deviation across the range: for a 24-48 V input the
+#: extremes then sit at +-41 % in ratio terms rather than -33 %/+50 %.
+DESIGN_CORNERS: tuple[str, ...] = ("nominal", "input_min", "input_max", "geometric_mean")
+
+
+def _design_corner_rail(ir: UnifiedIR, nominal_vin: float) -> tuple[float, str]:
+    """The input rail a design is scheduled at, and which rail that is.
+
+    Without a feedback loop no fixed ratio can hold a target across a wide input
+    range.  This chooses where to centre the design so the requirement is met as
+    well as an open-loop build can meet it, and the envelope analysis reports
+    what is left over rather than hiding it.
+    """
+
+    options = dict(ir.optimization.get("design_corner", {}) or {})
+    raw = options.get("rail", "nominal") if isinstance(options, Mapping) else "nominal"
+    rail = str(raw)
+    if rail not in DESIGN_CORNERS:
+        raise ValueError(
+            f"design_corner.rail must be one of {sorted(DESIGN_CORNERS)}, got {rail!r}"
+        )
+    if rail == "nominal":
+        return nominal_vin, rail
+    envelope = _envelope_for(ir)
+    if envelope is None:
+        raise ValueError(
+            f"design_corner.rail={rail!r} needs an operating_envelope to take the rail from"
+        )
+    if rail == "input_min":
+        return envelope.low_input_voltage_v, rail
+    if rail == "input_max":
+        return envelope.high_input_voltage_v, rail
+    return math.sqrt(envelope.low_input_voltage_v * envelope.high_input_voltage_v), rail
 
 
 def _stage_efficiency_objective(
@@ -1059,8 +1117,13 @@ def _optimize_four_parameter_converter(
     *,
     exact_duty: Callable[[float, float], float] | None = None,
     loss_parameters: "LossParameters | None" = None,
+    design_rail_v: float | None = None,
 ):
     load = vout / iout
+    # The rail the design is scheduled at.  It only differs from the nominal
+    # rail when the spec asks for it, and it only moves the duty cycle: the
+    # stored load, and therefore the power level, stay nominal.
+    rail = float(design_rail_v) if design_rail_v is not None else vin
     ranges = ir.constraints.get("parameter_ranges", {})
     bounds = _loss_aware_frequency_bounds(
         [
@@ -1075,12 +1138,15 @@ def _optimize_four_parameter_converter(
     # With a loss model the conversion ratio is pinned by construction, so the
     # duty cycle is no longer a free variable to be penalised into place.
     solve_stage = (
-        (lambda values, params: dc_solver(vin, params, loss_parameters=loss_parameters))
+        (lambda values, params: dc_solver(rail, params, loss_parameters=loss_parameters))
         if loss_parameters is not None
         else (lambda values, params: dc_solver(vin, params))
     )
-    if loss_parameters is not None and exact_duty is not None:
-        bounds[0] = (max(0.02, exact_duty(vin, vout) - 1e-9), min(0.98, exact_duty(vin, vout) + 1e-9))
+    scheduled_duty = (
+        exact_duty(rail, vout) if (loss_parameters is not None and exact_duty is not None) else None
+    )
+    if scheduled_duty is not None:
+        bounds[0] = (max(0.02, scheduled_duty - 1e-9), min(0.98, scheduled_duty + 1e-9))
 
     def base_objective(values, dc: BoostOperatingPoint) -> float:
         params = boost_parameters_from_values(values, load)
@@ -1107,7 +1173,7 @@ def _optimize_four_parameter_converter(
             family,
             bounds,
             initial_values={"duty_cycle": _bounded_initial(
-                exact_duty(vin, vout) if (loss_parameters is not None and exact_duty) else duty_target,
+                scheduled_duty if scheduled_duty is not None else duty_target,
                 bounds[0],
             )},
         ),

@@ -438,3 +438,139 @@ def test_worst_case_is_deterministic() -> None:
     second = design_from_pbdl(_enveloped_spec()).optimization.envelope_analysis
     assert first is not None and second is not None
     assert first.as_dict() == second.as_dict()
+
+
+# ---------------------------------------------------------------------------
+# Design corner: where the duty cycle is scheduled
+# ---------------------------------------------------------------------------
+
+
+def test_default_design_corner_is_nominal() -> None:
+    """Absent a request, nothing moves: the historical rail is used."""
+
+    from circuit_ai.power import _design_corner_rail
+
+    data = json.loads(BOOST_SPEC.read_text(encoding="utf-8"))
+    data["operating_envelope"] = {"min_input_voltage_v": 4.0, "max_input_voltage_v": 6.0}
+    rail, name = _design_corner_rail(pbdl_to_ir(data), 5.0)
+    assert name == "nominal"
+    assert rail == 5.0
+
+
+def test_design_corner_takes_each_declared_rail() -> None:
+    from circuit_ai.power import _design_corner_rail
+
+    data = json.loads(BOOST_SPEC.read_text(encoding="utf-8"))
+    data["operating_envelope"] = {"min_input_voltage_v": 4.0, "max_input_voltage_v": 9.0}
+    for rail, expected in (
+        ("input_min", 4.0),
+        ("input_max", 9.0),
+        ("geometric_mean", 6.0),
+    ):
+        data.setdefault("optimization", {})["design_corner"] = {"rail": rail}
+        value, name = _design_corner_rail(pbdl_to_ir(data), 5.0)
+        assert name == rail
+        assert value == pytest.approx(expected)
+
+
+def test_design_corner_rejects_bad_requests() -> None:
+    from circuit_ai.power import _design_corner_rail
+
+    data = json.loads(BOOST_SPEC.read_text(encoding="utf-8"))
+    data.setdefault("optimization", {})["design_corner"] = {"rail": "middle"}
+    with pytest.raises(ValueError, match="design_corner.rail"):
+        _design_corner_rail(pbdl_to_ir(data), 5.0)
+
+    # An extreme rail is meaningless without a range to take it from.
+    data["optimization"]["design_corner"] = {"rail": "input_min"}
+    with pytest.raises(ValueError, match="operating_envelope"):
+        _design_corner_rail(pbdl_to_ir(data), 5.0)
+
+
+def _wide_input_spec(rail: str) -> dict:
+    """A 2:1 input range on the boost example, which is what makes spread visible."""
+
+    data = json.loads(BOOST_SPEC.read_text(encoding="utf-8"))
+    data["name"] = f"corner_{rail}"
+    data["operating_envelope"] = {
+        "min_input_voltage_v": 4.0,
+        "max_input_voltage_v": 8.0,
+        "min_load_fraction": 0.5,
+        "max_load_fraction": 1.0,
+    }
+    data.setdefault("optimization", {})["loss_model"] = {"enabled": True}
+    data["optimization"]["design_corner"] = {"rail": rail}
+    return data
+
+
+def test_design_corner_changes_where_the_target_is_met() -> None:
+    """The trade-off is real and measurable, which is why it is selectable."""
+
+    from circuit_ai.pipeline import design_from_pbdl
+
+    low_line = design_from_pbdl(_wide_input_spec("input_min"))
+    summary = low_line.optimization.envelope_analysis
+    assert summary is not None
+
+    by_corner = {
+        row["corner"]["corner_id"]: float(row["output_voltage_v"])
+        for row in summary.corner_results
+    }
+    target = 10.0  # the boost example's output voltage
+
+    # Scheduling at low line hits the target exactly there...
+    assert by_corner["input_min__nominal"] == pytest.approx(target, rel=1e-6)
+    # ...and therefore overshoots above it, because there is no feedback loop.
+    assert by_corner["input_max__nominal"] > target
+    assert summary.regulates_output is False
+
+
+def test_low_line_scheduling_beats_nominal_sizing_for_undervoltage() -> None:
+    """Why the option exists: nominal sizing droops below target at low line."""
+
+    from circuit_ai.pipeline import design_from_pbdl
+
+    target = 10.0
+    nominal = design_from_pbdl(_wide_input_spec("nominal")).optimization.envelope_analysis
+    low_line = design_from_pbdl(_wide_input_spec("input_min")).optimization.envelope_analysis
+    assert nominal is not None and low_line is not None
+
+    assert nominal.output_voltage_min_v < target, "nominal sizing droops at low line"
+    assert low_line.output_voltage_min_v == pytest.approx(target, rel=1e-6)
+    # The cost of that choice is a larger overshoot at high line.
+    assert low_line.output_voltage_max_v > nominal.output_voltage_max_v
+
+
+def test_geometric_mean_centres_the_ratio() -> None:
+    """Centring makes the two rails equidistant *in ratio*, not in volts."""
+
+    from circuit_ai.pipeline import design_from_pbdl
+
+    data = _wide_input_spec("geometric_mean")
+    summary = design_from_pbdl(data).optimization.envelope_analysis
+    assert summary is not None
+    assert summary.output_voltage_min_corner.startswith("input_min")
+    assert summary.output_voltage_max_corner.startswith("input_max")
+
+    envelope = data["operating_envelope"]
+    low_rail = envelope["min_input_voltage_v"]
+    high_rail = envelope["max_input_voltage_v"]
+    geometric = (low_rail * high_rail) ** 0.5
+    target = 10.0
+
+    # Scheduled at the geometric mean, so the target is met there...
+    at_design_rail = target * geometric / geometric
+    assert at_design_rail == pytest.approx(target)
+    # ...and the delivered rail scales with input on both sides of it.
+    delivered_low = summary.output_voltage_min_v
+    delivered_high = summary.output_voltage_max_v
+    assert delivered_low < target < delivered_high
+    # Equidistant in ratio: min/target == target/max.
+    assert delivered_low / target == pytest.approx(target / delivered_high, rel=1e-6)
+    assert delivered_low / target == pytest.approx(low_rail / geometric, rel=1e-2)
+
+    # Compare the absolute spread against nominal sizing, which favours one rail.
+    nominal = design_from_pbdl(_wide_input_spec("nominal")).optimization.envelope_analysis
+    assert nominal is not None
+    assert nominal.output_voltage_min_v < target
+    assert summary.output_voltage_spread_v < nominal.output_voltage_spread_v
