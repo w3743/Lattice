@@ -130,6 +130,9 @@ The output directory contains:
   ngspice is measured, not asserted: 1.5e-5 V on the forward characteristic,
   1.8e-5 V across -40 to 150 C, and 8e-5 V on a 1 kHz to 10 GHz small-signal
   sweep including junction capacitance and transit time
+- Port S-parameters at any reference impedance, from the linearised small-signal
+  network, with Touchstone export. Checked against closed forms and against an
+  ngspice AC run of the same two-port over 1 MHz to 1 GHz, agreeing to 6.7e-16
 - Current-source AC excitation and transimpedance analysis for TIA-style current-input circuits
 - Output-impedance analysis and a minimum output-termination topology for matching stages
 - PBDL multi-stage planner that splits complex port specs into supported synthesis stages and explicit unsupported stages
@@ -273,6 +276,50 @@ rather than hiding it behind a loose tolerance. No other device kind exists yet 
 no BJT, MOSFET, op-amp or current mirror — so any active circuit beyond a diode
 is out of reach, and nothing here has been checked by any tool other than
 ngspice.
+
+## S-parameters
+
+S-parameters need no new numerical core: the small-signal solve already produces a
+linear network, and S-parameters are a change of basis on its port admittance
+matrix.
+
+```python
+from circuit_ai.mna import LinearCircuit, LinearElement
+from circuit_ai.sparameters import Port, s_parameters
+
+network = LinearCircuit(
+    elements=(
+        LinearElement("L", "L", "p1", "p2", 100e-9),
+        LinearElement("C", "C", "p2", "0", 10e-12),   # a 5 MHz low-pass
+    ),
+    voltage_sources=(),
+)
+result = s_parameters(
+    network, [Port("1", "p1"), Port("2", "p2")], [1e6, 1e7, 1e8]
+)
+result.db("2", "1")                     # insertion loss
+result.s("1", "1", 5e7)                 # input reflection at a frequency
+open("filter.s2p", "w").write(result.to_touchstone())
+```
+
+Each port is driven in turn by a Norton source — `1/Z0` of current in parallel
+with the port's own reference impedance — while every other port is terminated in
+its reference impedance. Reference impedance is per port and defaults to 50 ohm.
+Nonlinear devices are linearised at the operating point, which is computed if not
+supplied.
+
+Checked against closed forms (a series element, a shunt element, the short, open
+and matched limits), against passivity, and against an ngspice AC analysis of the
+same network over 1 MHz to 1 GHz: **both S11 and S21 agree to 6.7e-16**, the double
+rounding limit. Touchstone export is `# HZ S MA R n`.
+
+Note that the port extraction is subtle in a way that does not announce itself.
+Several formulations — omitting the driven port's own termination, or folding the
+measured voltage into a port impedance — are exact at one particular impedance and
+badly wrong elsewhere, so they survive a matched-load check. The tests therefore
+keep both the closed forms and the measured reference, because only the closed
+forms catch a convention error and only the measurement catches an
+implementation one.
 
 ## Differentiable circuit refinement
 
