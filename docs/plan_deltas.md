@@ -76,6 +76,9 @@ replay 按 spec 的训练/验证隔离）经核查确实缺少对应测试，不
 5. **版本控制**：本仓库当前不是 git 仓库（`git status` → `fatal: not a git repository`），
    `.git` 无历史，导致 `计划:15` 的“记录关联变更”、阶段退出门槛与回退能力无法执行。
    是否执行 `git init` 并建立首个提交基线，需用户决定。
+   **已解决（2026-09-11）**：用户确认执行 `git init` 并按现有 `.gitignore` 提交源码/文档/测试集。
+   首个基线提交为 `7574633`（`chore: baseline commit (374 passed / 1 skipped)`），
+   提交时工作树干净、`git status` 无输出。详见本文件 §7。
 6. **D5 的 4 类缺失 provider**（阻抗/稳定性/噪声/热）：是补实现，还是收窄 §8.2 承诺。
 
 ---
@@ -90,4 +93,86 @@ replay 按 spec 的训练/验证隔离）经核查确实缺少对应测试，不
 | `circuit_ai/mna.py` 的批量线性求解已被修复 | 建档前该行为 `np.linalg.solve(matrices, rhs)`（原 `circuit_ai/mna.py:209`，rhs 形状 `(n_freq, size)`）；建档后文件 mtime 为 2026-09-11 13:10:38，现值位于 `circuit_ai/mna.py:213`：`np.linalg.solve(matrices, rhs[..., None])[..., 0]`，并附注释说明 NumPy >= 2 把 `b` 视为核心 `(m, n)` 矩阵栈 | 计划文档阶段 0 新增的“恢复可运行基线”待办中，`mna.py` stacked solve 一项可能已由并发工作流完成，该待办实际剩余部分为安装 `pint`/`hypothesis` 与建立回归基线；措辞是否收窄待用户确认 |
 
 本文件本身不修改任何代码或测试；上述变更不属于本次文档任务。
+
+---
+
+## 7. 版本控制基线（2026-09-11 建立）
+
+本节记录 `git init` 与首个基线提交的事实，供后续变更对比与回退使用。
+
+| 项 | 值 |
+|---|---|
+| 基线提交 | `7574633`（`7574633027c5781d5526c692cc064ef74ad13655`） |
+| 提交信息 | `chore: baseline commit (374 passed / 1 skipped)` |
+| 提交时工作树 | 干净（`git status --porcelain` 无输出） |
+| 纳管条目 | 330（329 个常规文件 + 1 个 gitlink） |
+| 提交时全量测试 | `374 passed, 1 skipped, 0 failed`（55.04s） |
+| 提交者身份 | `w3743 <wangjiayu0403@qq.com>`（仅写入本仓库 `.git/config`） |
+
+范围与例外（依据用户确认的“按现有 `.gitignore` 提交源码+文档+测试集”）：
+
+- `outputs/`、`__pycache__/`、`.pytest_cache/`、`.pytest_tmp/`、`.hypothesis/`、
+  `*.egg-info/`、`models/`、`data/*.jsonl` 按现有 `.gitignore` 排除。
+  **后果：报告引用的证据产物（`outputs/_baseline_report.md`、
+  `outputs/_handover_inventory.txt`、`outputs/_pip_freeze_*.txt`、
+  各 `episode.jsonl` 冒烟产物）不在版本控制内**，其可追溯性依赖文件系统本身。
+- `third_party/digikey-partner-kicad-library` 记录为 **gitlink**
+  （`160000 b0bdcd1e0d2b817815c2bbf6fb656673b258bbe7`），未做 vendor 复制。
+  该目录本身是干净的上游克隆（remote `github.com/Digi-Key/digikey-partner-kicad-library.git`），
+  固定提交即可复现；但**未创建 `.gitmodules`**，故其他克隆方不会自动获取其内容。
+- `_paper_2608.25512/` 已随基线提交纳入（5 个文件，约 2.7 MB）。该目录是
+  arXiv 2608.25512《A Programming Paradigm for Spatiotemporal Composability》
+  的抓取产物，**与本项目源码无关**，其来源归属仍待用户确认（见 §8）。
+
+已知环境瑕疵（不影响基线有效性）：
+
+- `.pytest_cache/` 目录当前**拒绝访问**（`Access to the path ... is denied`），
+  属性为普通 `Directory`。pytest 因此每轮都报 `PytestCacheWarning: could not create
+  cache path`，`.pytest_cache` 的 `--lf` / `--ff` 失效。该现象在 `git init` 之前即存在
+  （见基线测试输出），非本次引入。
+
+---
+
+## 8. 移交报告事实核对（2026-09-11，接手方独立复核）
+
+《移交报告》§8 把“填充 episode 的 `budget` / `random_seed`（缺陷 #1）”列为 **P0**，
+理由为“`pipeline.py` 已有同名辅助函数，疑似未接线”。接手方独立复核后认为**该归因不成立**，
+登记如下以免被当作已知缺陷继续传递：
+
+| 报告原话 | 复核事实 | 证据 |
+|---|---|---|
+| “疑似未接线” | **已接线**，两处调用均在活动代码路径中 | `circuit_ai/pipeline.py:349` `budget=_search_budget(ir)`、`:350` `random_seed=_configured_seed(ir)`；辅助函数定义于 `:624` 与 `:636` |
+| “`random_seed=None`” | **AC 路径已填充**；仅电源路径为 `None` | `outputs/episode_smoke_ac/stage_1_voltage_transfer/episode.jsonl` 三行均 `seed=7`；`outputs/episode_smoke_ac/stage_2_output_impedance/episode.jsonl` 一行 `seed=7` |
+| “两行均如此” | 与 AC 实测矛盾，疑来自电源路径产物 | 同上 |
+
+复核得到的**真实剩余问题**（性质与报告不同，属契约表达力而非接线缺陷）：
+
+- `budget` 取值为 `{}` 是**当前输入的正确取值**：`_search_budget` 只读取
+  `ir.optimization["graph_search"]` 的边界键（`max_expansions` / `beam_width` /
+  `max_candidates` / `max_components` / `max_nodes` / `max_depth`，`pipeline.py:629`），
+  而所用 PBDL 文件未配置这些边界，故“无预算约束”的忠实表达就是 `{}`。
+- `random_seed=None`（电源 CLI 路径）同样是忠实取值：`_configured_seed` 读
+  `ir.optimization["seed"]`（`pipeline.py:637`），PBDL 输入未提供种子。
+- 因此**不应把 `{}` / `None` 直接当成“未采集”**。真正的缺口是：
+  episode 契约无法区分“**未配置预算/种子**”与“**未采集该证据**”两种语义。
+  若要闭合该缺口，应扩充契约（例如显式来源标记或 `null` 与缺省的区分），
+  属架构决策，需用户拍板后再动。
+
+证据时效性提醒：上表 AC 侧的 `seed=7` 取自 `outputs/episode_smoke_ac/`
+（2026-09-11 13:29 产物，早于报告定稿）。**接手后重新生成**的产物中，
+`python pbdl_synth.py 测试集/pbdl/baseline/5v_to_10v_dc_boost.json --out outputs/_h_overtake_dc`
+得到 `budget={} seed=None`（两行），与上述解释一致。读取 `outputs/` 下旧产物作为证据前，
+应先确认其是否由当前代码生成。
+
+尚未复核、**不得据报告直接采信**的项（报告 §4.2 自述未完成，与本表无关）：
+`SearchActionRecord.parent_hash` 链的真实搜索驱动、`orchestrator`/`pipeline` 写同一
+`episode.jsonl` 的重复写入风险、`isolation_short` 自造反例直跑、holdout 组完整性、
+`mna.py:213` 定向复数/多 RHS 实验、episode 与两个 replay 文件的交叉一致性。
+
+遗留卫生项：
+
+- `_paper_2608.25512/` 归属仍待用户确认（报告 §2.4 与 §6 缺陷 #7）。
+  复核确认其内容为 arXiv 2608.25512 论文抓取物（`meta.py` 为提取脚本，
+  标题《A Programming Paradigm for Spatiotemporal Composability》，
+  作者含 DeepSeek-AI），**与本项目电路设计主题无关**。
 
