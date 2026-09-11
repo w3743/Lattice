@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import json
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -29,26 +29,26 @@ from .evidence import (
 )
 from .experts import ExpertTopologySelector, TopologyCandidate, UnsupportedTopology
 from .ir import UnifiedIR, pbdl_to_ir
-from .simulation_tasks import (
-    SimulationTask,
-    SimulationTaskEvaluation,
-    evaluate_simulation_task,
-    simulation_tasks_from_ir,
-)
-from .simulation import (
-    SimulationExecutor,
-    SimulationRequest,
-    SimulationResult,
-    SimulationStatus,
-    NgspiceSimulatorBackend,
-    simulation_requests_for_tasks,
-)
-from .selection import CandidateDecision, rank_candidates
 from .optimization import (
     FidelityDisagreement,
     attach_disagreement_diagnostics,
     compare_fidelity_results,
     disagreement_from_options,
+)
+from .selection import CandidateDecision, rank_candidates
+from .simulation import (
+    NgspiceSimulatorBackend,
+    SimulationExecutor,
+    SimulationRequest,
+    SimulationResult,
+    SimulationStatus,
+    simulation_requests_for_tasks,
+)
+from .simulation_tasks import (
+    SimulationTask,
+    SimulationTaskEvaluation,
+    evaluate_simulation_task,
+    simulation_tasks_from_ir,
 )
 from .topology_grammar import PowerTopologyGrammar, TopologySearchCertificate
 
@@ -63,7 +63,7 @@ class PowerDesignResult:
     graph_svg: Path | None = None
     graph_kicad_schematic: Path | None = None
     graph_export_manifest: Path | None = None
-    evaluations: tuple["PowerCandidateEvaluation", ...] = ()
+    evaluations: tuple[PowerCandidateEvaluation, ...] = ()
     search_certificate: TopologySearchCertificate | None = None
     simulation_tasks: tuple[SimulationTask, ...] = ()
     simulation_evaluations: tuple[SimulationTaskEvaluation, ...] = ()
@@ -384,6 +384,11 @@ def design_from_pbdl(
                 "worst_case": (
                     optimization.envelope_analysis.as_dict()
                     if getattr(optimization, "envelope_analysis", None) is not None
+                    else None
+                ),
+                "load_step": (
+                    optimization.load_step.as_dict()
+                    if getattr(optimization, "load_step", None) is not None
                     else None
                 ),
                 "candidates": [item.as_dict() for item in evaluations],

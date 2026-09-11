@@ -9,6 +9,7 @@ from typing import Any, ClassVar
 
 from .experts import TopologyCandidate
 from .ir import IRComponent, UnifiedIR
+from .load_step import LoadStepResult, evaluate_load_step, load_step_from_mapping
 from .operating_envelope import (
     DutySchedule,
     OperatingCorner,
@@ -106,6 +107,8 @@ class BoostOptimizationResult:
     #: when the spec declares no envelope, so single-point artifacts are
     #: unchanged.
     envelope_analysis: WorstCaseSummary | None = None
+    #: Load-step excursion verdict.  ``None`` when the spec states no budget.
+    load_step: LoadStepResult | None = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +141,8 @@ class FlybackOptimizationResult:
     objective: float
     optimization_run: OptimizationRunResult | None = None
     envelope_analysis: WorstCaseSummary | None = None
+    #: Load-step excursion verdict.  ``None`` when the spec states no budget.
+    load_step: LoadStepResult | None = None
 
 
 @dataclass(frozen=True)
@@ -150,6 +155,8 @@ class BuckOptimizationResult:
     objective: float
     optimization_run: OptimizationRunResult | None = None
     envelope_analysis: WorstCaseSummary | None = None
+    #: Load-step excursion verdict.  ``None`` when the spec states no budget.
+    load_step: LoadStepResult | None = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +169,8 @@ class SepicOptimizationResult:
     objective: float
     optimization_run: OptimizationRunResult | None = None
     envelope_analysis: WorstCaseSummary | None = None
+    #: Load-step excursion verdict.  ``None`` when the spec states no budget.
+    load_step: LoadStepResult | None = None
 
 
 # Unit and scale of every decision variable shared by the ideal power stages.
@@ -605,6 +614,7 @@ class BoostParameterOptimizer:
                 loss_parameters=loss_parameters,
                 duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
             ),
+            load_step=_load_step_for(ir, params, vout=vout, iout=iout),
         )
 
 
@@ -647,6 +657,7 @@ class BuckParameterOptimizer:
                 loss_parameters=_loss_model_for(ir),
                 duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
             ),
+            load_step=_load_step_for(ir, params, vout=vout, iout=iout),
         )
 
 
@@ -687,6 +698,7 @@ class SepicParameterOptimizer:
                 loss_parameters=_loss_model_for(ir),
                 duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
             ),
+            load_step=_load_step_for(ir, params, vout=vout, iout=iout),
         )
 
 
@@ -732,7 +744,12 @@ class FlybackParameterOptimizer:
             voltage_error = abs(dc.output_voltage_v - vout) / vout
             ripple_error = 0.0 if not math.isfinite(ripple_limit) else max(0.0, dc.predicted_ripple_mv / ripple_limit - 1.0)
             size_penalty = 0.002 * (math.log10(params.inductance_h / 100e-6) ** 2 + math.log10(params.capacitance_f / 100e-6) ** 2 + math.log10(params.turns_ratio) ** 2)
-            return 100.0 * voltage_error**2 + 5.0 * ripple_error**2 + size_penalty
+            return (
+                100.0 * voltage_error**2
+                + 5.0 * ripple_error**2
+                + size_penalty
+                + _load_step_penalty(ir, params, vout=vout, iout=iout)
+            )
 
         objective = _stage_efficiency_objective(ir, base_objective, weight=None)
 
@@ -798,6 +815,7 @@ class FlybackParameterOptimizer:
                 loss_parameters=loss_parameters,
                 duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
             ),
+            load_step=_load_step_for(ir, params, vout=vout, iout=iout),
         )
 
 
@@ -1084,6 +1102,71 @@ def _envelope_for(ir: UnifiedIR) -> OperatingEnvelope | None:
 _DUTY_BAND: tuple[float, float] = (0.05, 0.95)
 
 
+def _load_step_penalty(
+    ir: UnifiedIR,
+    design: Any,
+    *,
+    vout: float,
+    iout: float,
+) -> float:
+    """Charge a load-step budget breach into the stage objective.
+
+    Zero when no budget is declared, so an unbudgeted design's score is
+    bit-identical to before.  Otherwise the charge is the fractional breach, in
+    the same dimensionless units the rest of the objective uses, so a design that
+    misses its excursion budget cannot win on average fit alone.
+
+    This is a *feasibility* penalty: it pushes the optimizer toward more output
+    capacitance, which is the actionable lever the charge-balance model exposes.
+    It is not a control design, and nothing here claims loop stability.
+    """
+
+    requirement = load_step_from_mapping(ir.metadata.get("load_step") or {})
+    if requirement is None:
+        return 0.0
+    result = evaluate_load_step(
+        requirement,
+        nominal_output_current_a=iout,
+        output_voltage_v=vout,
+        capacitance_f=float(design.capacitance_f),
+    )
+    budget_mv = (
+        requirement.max_undershoot_mv
+        if requirement.is_step_up
+        else requirement.max_overshoot_mv
+    )
+    penalty = 0.0
+    if budget_mv is not None and budget_mv > 0.0:
+        penalty += max(0.0, result.excursion_mv / budget_mv - 1.0) ** 2
+    if requirement.max_recovery_us is not None and requirement.max_recovery_us > 0.0:
+        penalty += max(0.0, result.recovery_us / requirement.max_recovery_us - 1.0) ** 2
+    return _LOAD_STEP_OBJECTIVE_WEIGHT * penalty
+
+
+#: How hard a load-step breach is charged relative to the shape terms.  The
+#: square above already makes small breaches cheap and large ones expensive.
+_LOAD_STEP_OBJECTIVE_WEIGHT = 50.0
+
+
+def _load_step_for(ir: UnifiedIR, design: Any, *, vout: float, iout: float) -> LoadStepResult | None:
+    """Evaluate the declared load-step budget against the chosen design.
+
+    ``None`` when the spec states no load-step requirement, so nothing is claimed
+    about one.  Capacitance is taken from the design under test, so the verdict
+    reflects the part values that would actually be built.
+    """
+
+    requirement = load_step_from_mapping(ir.metadata.get("load_step") or {})
+    if requirement is None:
+        return None
+    return evaluate_load_step(
+        requirement,
+        nominal_output_current_a=iout,
+        output_voltage_v=vout,
+        capacitance_f=float(design.capacitance_f),
+    )
+
+
 def _duty_schedule_for(
     ir: UnifiedIR,
     design: Any,
@@ -1325,7 +1408,12 @@ def _optimize_four_parameter_converter(
             math.log10(params.inductance_h / 100e-6) ** 2
             + math.log10(params.capacitance_f / 100e-6) ** 2
         )
-        return 100.0 * voltage_error**2 + 5.0 * ripple_error**2 + size_penalty
+        return (
+            100.0 * voltage_error**2
+            + 5.0 * ripple_error**2
+            + size_penalty
+            + _load_step_penalty(ir, params, vout=vout, iout=iout)
+        )
 
     objective = _stage_efficiency_objective(ir, base_objective, weight=None)
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .pbdl_boundary import load_pbdl_dict
 from .operating_envelope import envelope_from_mapping
+from .pbdl_boundary import load_pbdl_dict
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,7 @@ class UnifiedIR:
             names.update(component.nodes)
         return tuple(sorted(names))
 
-    def with_components(self, components: tuple[IRComponent, ...]) -> "UnifiedIR":
+    def with_components(self, components: tuple[IRComponent, ...]) -> UnifiedIR:
         return UnifiedIR(
             name=self.name,
             description=self.description,
@@ -165,6 +165,13 @@ def pbdl_to_ir(data: dict[str, Any]) -> UnifiedIR:
     # voltage, so a spec only has to state the ranges it tolerates.
     fallback_nominal = targets[0].get("input_voltage_v") if targets else None
     envelope = envelope_from_mapping(data, fallback_input_voltage_v=fallback_nominal)
+    # Requirement keys the PBDL translation has no field for ride in metadata, so
+    # they survive into the IR instead of being dropped by the fixed key set.
+    carried = {
+        key: data[key]
+        for key in ("load_step",)
+        if isinstance(data.get(key), dict)
+    }
     return UnifiedIR(
         name=spec.name,
         description=spec.description,
@@ -177,5 +184,5 @@ def pbdl_to_ir(data: dict[str, Any]) -> UnifiedIR:
         optimization=dict(spec.optimization),
         functions=tuple(item.as_dict() for item in spec.functions),
         operating_envelope=envelope.as_dict() if envelope is not None else None,
-        metadata={"source": "PBDL"},
+        metadata={"source": "PBDL", **carried},
     )

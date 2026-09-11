@@ -320,6 +320,17 @@ sized against a range and judged on real efficiency instead of an idealised 1.0:
   the artifact: duty reachability says nothing about whether a loop can be
   compensated, which needs a stability analysis this project does not have.
 
+- **`load_step` evaluates a load-step budget**, one of the most common real
+  requirements and previously inexpressible -- the only transient model was
+  startup. It reports the excursion, the recovery time, and the capacitance that
+  would meet the budget. The model is charge balance (`dI · tau / 2C`), so
+  `loop_response_s` is an *assumed* closed-loop slew time: this answers "is the
+  budget achievable, and at what capacitance", never "is the loop stable".
+  `justifies_stability_claim` is always `false` and is serialised. A declared
+  budget is charged into the optimizer, so it changes the selected capacitance
+  (100 uF without a budget, ~900 uF with a 50 mV budget) rather than only adding
+  a label.
+
 Nothing here claims the export has been verified by KiCad or ngspice; neither is
 installed in this environment.
 
