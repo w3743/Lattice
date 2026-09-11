@@ -239,3 +239,55 @@ replay 按 spec 的训练/验证隔离）经核查确实缺少对应测试，不
 `SimulationExecutor().cache.clear()` 规避，但根因未动（清理点属于测试基建决策，
 可能影响既有缓存收益断言）。建议后续单列任务处理。
 
+---
+
+## 10. 经典测试集的"可规划 ≠ 可执行"缺口（2026-09-11 实测）
+
+### 10.1 实测方法与结果
+
+`测试集/清单.json` 把 111 个用例分为 `expected_planning` 与 `execution_tier` 两个维度，
+其中 4 个为 `execution`（正式冒烟验证），其余 107 个为 `schema`，`validation_scope` 为
+`planner`。**即清单本身只承诺"规划器能正确分类"，从未承诺这些用例能跑通。**
+此前没有任何数据说明这 67 个 planner-supported 用例能否执行，因此本次实测补上。
+
+实测方式：对全部 67 个 `expected_planning=supported` 且 `execution_tier=schema` 的用例
+逐个调用 `circuit_ai.pbdl_runner.run_pbdl_file(..., top_k=1)`。
+
+| 结果 | 数量 |
+|---|---|
+| 执行成功 | **57** |
+| 执行失败 | **10** |
+
+### 10.2 失败用例与根因（均已复现）
+
+| 用例 | 根因 |
+|---|---|
+| `ac_notch_1khz`、`ac_notch_50hz`、`ac_notch_60hz` | 综合层不支持 `bandstop` 行为：`spec failed feasibility checks: unsupported behavior kind: 'bandstop'` |
+| `ac_allpass_phase_1khz`、`ac_allpass_phase_10khz` | 同上，不支持 `allpass` |
+| `ac_tia_10kohm`、`ac_tia_100kohm`、`ac_tia_1mohm`、`ac_tia_10mohm` | `stage validation failed`；其 analysis 声明为 `voltage_transfer` 但 source 是 `current_input`，target 为 `target_kind=amplifier`，当前阶段校验无法处理该组合 |
+| `bandgap_2v5` | 清单路径记为 `pbdl/classic/bandgap_2v5.json`，**实际位于 `pbdl/baseline/`** → `FileNotFoundError`；属清单路径错误，非能力缺失。即使路径修正，该 spec 选中的电源拓扑也要求库外元件（`['C','L','ideal_diode','ideal_switch']`） |
+
+### 10.3 判定
+
+- **`bandstop` / `allpass` 属规划器与执行器的能力不一致**：`端口描述语言/targets.py:101`
+  已把两者列入 `FilterKind` 并有 `_bandstop_complex` 实现，`circuit_ai/pbdl_boundary.py:138`
+  也接受这两种 kind，但 AC 综合的可行性检查不认。规划器因此把它们判为 supported。
+  这既是能力缺口，也是**规划器过于乐观**的缺陷——两者应取其一。
+- **TIA 4 例**属"声明了 analysis 但未声明可执行行为"的边界，需补 transimpedance 综合路径
+  或把规划器判为 unsupported，同样属于规划-执行一致性决策。
+- **`bandgap_2v5` 的清单路径错误**是纯数据缺陷，可直接修（但会导致该用例从
+  "planner-supported 但执行失败"变成"规划即不支持"，需用户确认期望）。
+
+以上 10 项**未修**，因为每一项都涉及"补能力"还是"收窄规划器承诺"的产品决策。
+建议按 §7 待拍板事项一并处理。
+
+### 10.4 本次能力结论（可对外表述的口径）
+
+- 能**规划**（分类正确）的需求：111 个用例中 71 个 supported / 39 个 unsupported / 1 个 mixed。
+- 能**执行**并有正式验证的：4 个（`execution_tier=smoke`，实测 4/4 通过）。
+- 能**执行**但仅有规划级承诺的：67 个中的 **57** 个（本次实测）。
+- 全新需求（不在仓库任何测试集中、`cutoff_hz=2200 Hz` 的一阶 Butterworth）：
+  用标准 PBDL 格式综合成功，`rmse = 3.4e-11 dB`。
+- **不得表述为**"71 个需求全部可综合"。准确口径是"71 个可规划，其中 61 个经实测可执行
+  （4 smoke + 57 抽查），10 个规划通过但执行失败"。
+
