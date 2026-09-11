@@ -20,6 +20,14 @@ from .optimization import (
     VariableKind,
     VariableScale,
 )
+from .power_loss import (
+    DEFAULT_LOSS_PARAMETERS,
+    LossBreakdown,
+    LossParameters,
+    default_switch_path_duty,
+    evaluate_loss_model,
+    loss_parameters_from_options,
+)
 
 
 @dataclass(frozen=True)
@@ -263,78 +271,177 @@ def flyback_parameters_from_values(
     )
 
 
-def solve_ideal_boost_dc(vin: float, parameters: BoostParameters) -> BoostOperatingPoint:
-    if not 0.0 < parameters.duty_cycle < 1.0:
+def _ideal_stage_dc(
+    vin: float,
+    duty_cycle: float,
+    inductance_h: float,
+    capacitance_f: float,
+    switching_frequency_hz: float,
+    load_ohm: float,
+    voltage_from_input: Callable[[float, float], float],
+    *,
+    ripple_factor: Callable[[float, float], float],
+    inductor_ripple_factor: Callable[[float, float], float],
+    loss_parameters: "LossParameters | None" = None,
+    switch_voltage_v: float = 0.0,
+    duty_transform: Callable[[float], float] | None = None,
+) -> BoostOperatingPoint:
+    """One averaged-stage operating point for any converter family.
+
+    The families in this module differ only in their ideal conversion ratio and
+    in how the switch current paths divide the cycle -- every output quantity
+    below has the same form for all of them.  Keeping that in one place is what
+    makes a new family a registration rather than a fifth near-duplicate solver.
+
+    Each family supplies ``voltage_from_input(vin, duty)`` and its ripple factors
+    written to reproduce the original arithmetic exactly, rather than an
+    algebraically equal rearrangement.  ``vin / (1 - duty)`` and
+    ``vin * (1 / (1 - duty))`` differ in the last bit, and these numbers feed a
+    stochastic optimiser whose discrete selection then changes; the golden
+    characterization lock detects exactly that.
+    """
+
+    if not 0.0 < duty_cycle < 1.0:
         raise ValueError("duty_cycle must be between 0 and 1")
-    vout = vin / (1.0 - parameters.duty_cycle)
-    iout = vout / parameters.load_ohm
+    if switching_frequency_hz <= 0 or capacitance_f <= 0 or inductance_h <= 0:
+        raise ValueError("switching frequency, capacitance and inductance must be positive")
+    vout = voltage_from_input(vin, duty_cycle)
+    iout = vout / load_ohm
     pout = vout * iout
-    iin = pout / vin
-    ripple = iout * parameters.duty_cycle / (
-        parameters.switching_frequency_hz * parameters.capacitance_f
+    ripple = iout * ripple_factor(duty_cycle, vin) / (
+        switching_frequency_hz * capacitance_f
     )
-    delta_i = vin * parameters.duty_cycle / (
-        parameters.switching_frequency_hz * parameters.inductance_h
+    delta_i = inductor_ripple_factor(duty_cycle, vin) / (
+        switching_frequency_hz * inductance_h
     )
+    efficiency = 1.0
+    if loss_parameters is not None:
+        path = default_switch_path_duty(
+            duty_transform(duty_cycle) if duty_transform is not None else duty_cycle,
+            switch_voltage_v=switch_voltage_v,
+        )
+        breakdown = evaluate_loss_model(
+            input_voltage_v=vin,
+            output_power_w=pout,
+            output_voltage_v=vout,
+            output_current_a=iout,
+            duty=duty_cycle,
+            switching_frequency_hz=switching_frequency_hz,
+            inductance_h=inductance_h,
+            capacitance_f=capacitance_f,
+            inductor_ripple_a=delta_i,
+            path=path,
+            parameters=loss_parameters,
+        )
+        efficiency = breakdown.efficiency
+    # Input current follows the delivered power and the estimated efficiency.
+    iin = pout / (vin * efficiency) if efficiency > 0.0 else float("inf")
     return BoostOperatingPoint(
         input_voltage_v=vin,
         output_voltage_v=vout,
         input_current_a=iin,
         output_current_a=iout,
         output_power_w=pout,
-        efficiency=1.0,
+        efficiency=efficiency,
         predicted_ripple_mv=ripple * 1000.0,
         inductor_ripple_a=delta_i,
     )
 
 
-def solve_ideal_buck_dc(vin: float, parameters: BoostParameters) -> BoostOperatingPoint:
-    if not 0.0 < parameters.duty_cycle < 1.0:
-        raise ValueError("duty_cycle must be between 0 and 1")
-    vout = vin * parameters.duty_cycle
-    iout = vout / parameters.load_ohm
-    pout = vout * iout
-    iin = pout / vin
-    ripple = iout * (1.0 - parameters.duty_cycle) / (
-        parameters.switching_frequency_hz * parameters.capacitance_f
-    )
-    delta_i = (vin - vout) * parameters.duty_cycle / (
-        parameters.switching_frequency_hz * parameters.inductance_h
-    )
-    return BoostOperatingPoint(
-        input_voltage_v=vin,
-        output_voltage_v=vout,
-        input_current_a=iin,
-        output_current_a=iout,
-        output_power_w=pout,
-        efficiency=1.0,
-        predicted_ripple_mv=ripple * 1000.0,
-        inductor_ripple_a=delta_i,
+def solve_ideal_boost_dc(
+    vin: float,
+    parameters: BoostParameters,
+    *,
+    loss_parameters: "LossParameters | None" = None,
+) -> BoostOperatingPoint:
+    return _ideal_stage_dc(
+        vin,
+        parameters.duty_cycle,
+        parameters.inductance_h,
+        parameters.capacitance_f,
+        parameters.switching_frequency_hz,
+        parameters.load_ohm,
+        voltage_from_input=lambda rail, duty: rail / (1.0 - duty),
+        ripple_factor=lambda duty, rail: duty,
+        inductor_ripple_factor=lambda duty, rail: rail * duty,
+        loss_parameters=loss_parameters,
+        switch_voltage_v=vin / (1.0 - parameters.duty_cycle),
     )
 
 
-def solve_ideal_sepic_dc(vin: float, parameters: BoostParameters) -> BoostOperatingPoint:
-    if not 0.0 < parameters.duty_cycle < 1.0:
-        raise ValueError("duty_cycle must be between 0 and 1")
-    vout = vin * parameters.duty_cycle / (1.0 - parameters.duty_cycle)
-    iout = vout / parameters.load_ohm
-    pout = vout * iout
-    iin = pout / vin
-    ripple = iout * parameters.duty_cycle / (
-        parameters.switching_frequency_hz * parameters.capacitance_f
+def solve_ideal_buck_dc(
+    vin: float,
+    parameters: BoostParameters,
+    *,
+    loss_parameters: "LossParameters | None" = None,
+) -> BoostOperatingPoint:
+    return _ideal_stage_dc(
+        vin,
+        parameters.duty_cycle,
+        parameters.inductance_h,
+        parameters.capacitance_f,
+        parameters.switching_frequency_hz,
+        parameters.load_ohm,
+        voltage_from_input=lambda rail, duty: rail * duty,
+        ripple_factor=lambda duty, rail: 1.0 - duty,
+        # Kept as the original (vin - vout) form: `vin * (1 - duty)` is
+        # algebraically identical but not bit-identical.
+        inductor_ripple_factor=lambda duty, rail: (rail - rail * duty) * duty,
+        loss_parameters=loss_parameters,
+        switch_voltage_v=vin,
     )
-    delta_i = vin * parameters.duty_cycle / (
-        parameters.switching_frequency_hz * parameters.inductance_h
+
+
+def solve_ideal_sepic_dc(
+    vin: float,
+    parameters: BoostParameters,
+    *,
+    loss_parameters: "LossParameters | None" = None,
+) -> BoostOperatingPoint:
+    return _ideal_stage_dc(
+        vin,
+        parameters.duty_cycle,
+        parameters.inductance_h,
+        parameters.capacitance_f,
+        parameters.switching_frequency_hz,
+        parameters.load_ohm,
+        voltage_from_input=lambda rail, duty: rail * duty / (1.0 - duty),
+        ripple_factor=lambda duty, rail: duty,
+        inductor_ripple_factor=lambda duty, rail: rail * duty,
+        loss_parameters=loss_parameters,
+        # A SEPIC switch blocks the input plus the output rail.
+        switch_voltage_v=vin + vin * parameters.duty_cycle / (1.0 - parameters.duty_cycle),
     )
-    return BoostOperatingPoint(
-        input_voltage_v=vin,
-        output_voltage_v=vout,
-        input_current_a=iin,
-        output_current_a=iout,
-        output_power_w=pout,
-        efficiency=1.0,
-        predicted_ripple_mv=ripple * 1000.0,
-        inductor_ripple_a=delta_i,
+
+
+def solve_ideal_flyback_dc(
+    vin: float,
+    parameters: FlybackParameters,
+    *,
+    loss_parameters: "LossParameters | None" = None,
+) -> BoostOperatingPoint:
+    if parameters.turns_ratio <= 0:
+        raise ValueError("flyback turns_ratio must be positive")
+    return _ideal_stage_dc(
+        vin,
+        parameters.duty_cycle,
+        parameters.inductance_h,
+        parameters.capacitance_f,
+        parameters.switching_frequency_hz,
+        parameters.load_ohm,
+        voltage_from_input=lambda rail, duty: parameters.turns_ratio
+        * rail
+        * duty
+        / (1.0 - duty),
+        ripple_factor=lambda duty, rail: duty,
+        inductor_ripple_factor=lambda duty, rail: rail * duty,
+        loss_parameters=loss_parameters,
+        # The flyback switch blocks the input plus the reflected output voltage.
+        switch_voltage_v=vin
+        + vin
+        * parameters.turns_ratio
+        * parameters.duty_cycle
+        / (1.0 - parameters.duty_cycle),
     )
 
 
@@ -406,31 +513,6 @@ def simulate_ideal_averaged_converter(
     return TransientTrace(tuple(times), tuple(voltages), tuple(currents), tuple(states))
 
 
-def solve_ideal_flyback_dc(vin: float, parameters: FlybackParameters) -> BoostOperatingPoint:
-    if not 0.0 < parameters.duty_cycle < 1.0 or parameters.turns_ratio <= 0:
-        raise ValueError("flyback duty_cycle must be between 0 and 1 and turns_ratio must be positive")
-    vout = parameters.turns_ratio * vin * parameters.duty_cycle / (1.0 - parameters.duty_cycle)
-    iout = vout / parameters.load_ohm
-    pout = vout * iout
-    iin = pout / vin
-    ripple = iout * parameters.duty_cycle / (
-        parameters.switching_frequency_hz * parameters.capacitance_f
-    )
-    delta_i = vin * parameters.duty_cycle / (
-        parameters.switching_frequency_hz * parameters.inductance_h
-    )
-    return BoostOperatingPoint(
-        input_voltage_v=vin,
-        output_voltage_v=vout,
-        input_current_a=iin,
-        output_current_a=iout,
-        output_power_w=pout,
-        efficiency=1.0,
-        predicted_ripple_mv=ripple * 1000.0,
-        inductor_ripple_a=delta_i,
-    )
-
-
 def simulate_ideal_flyback(
     vin: float,
     parameters: FlybackParameters,
@@ -478,46 +560,22 @@ class BoostParameterOptimizer:
         iout = float(target.get("output_current_a") or 0.0)
         if vin <= 0 or vout <= vin or iout <= 0:
             raise ValueError("ideal boost optimization needs positive vin, vout > vin and output current")
-        load = vout / iout
         duty_target = 1.0 - vin / vout
-        ranges = ir.constraints.get("parameter_ranges", {})
-        bounds = [
-            _range_or(ranges, "duty_cycle", (max(0.05, duty_target - 0.25), min(0.95, duty_target + 0.25))),
-            _range_or(ranges, "L", (10e-6, 2e-3)),
-            _range_or(ranges, "C", (10e-6, 5e-3)),
-            _range_or(ranges, "switching_frequency_hz", (20e3, 500e3)),
-        ]
-        ripple_limit = float(target.get("ripple_mv") or float("inf"))
-
-        def objective(values) -> float:
-            params = boost_parameters_from_values(values, load)
-            dc = solve_ideal_boost_dc(vin, params)
-            voltage_error = abs(dc.output_voltage_v - vout) / vout
-            ripple_error = 0.0 if not math.isfinite(ripple_limit) else max(0.0, dc.predicted_ripple_mv / ripple_limit - 1.0)
-            # Mild preferences keep the result practical without overriding
-            # the declared electrical target.
-            size_penalty = 0.002 * (math.log10(params.inductance_h / 100e-6) ** 2 + math.log10(params.capacitance_f / 100e-6) ** 2)
-            return 100.0 * voltage_error**2 + 5.0 * ripple_error**2 + size_penalty
-
-        run = _solve_power_problem(
-            _power_problem(
-                "dc_boost",
-                bounds,
-                initial_values={"duty_cycle": _bounded_initial(duty_target, bounds[0])},
-            ),
-            objective,
-            ir.optimization,
-        )
-        params = boost_parameters_from_values(run.values, load)
-        dc = solve_ideal_boost_dc(vin, params)
-        transient = simulate_ideal_boost(vin, params)
-        components = tuple(_materialize_component(component, params) for component in candidate.components)
-        materialized_candidate = _candidate_with_materialized_graph(
-            replace(candidate, components=components, graph=None),
+        loss_parameters = _loss_model_for(ir)
+        params, dc, run = _optimize_four_parameter_converter(
             ir,
+            vin,
+            vout,
+            iout,
+            duty_target,
+            solve_ideal_boost_dc,
+            "dc_boost",
+            exact_duty=lambda rail, out: _exact_duty_for_ratio(out, rail),
+            loss_parameters=loss_parameters,
         )
+        transient = simulate_ideal_boost(vin, params)
         return BoostOptimizationResult(
-            candidate=materialized_candidate,
+            candidate=_materialize_candidate(candidate, params, ir),
             parameters=power_stage_parameters(params),
             operating_point=dc,
             transient=transient,
@@ -529,7 +587,6 @@ class BoostParameterOptimizer:
 
 class BuckParameterOptimizer:
     def optimize(self, ir: UnifiedIR, candidate: TopologyCandidate) -> BuckOptimizationResult:
-        target = ir.primary_target
         vin, vout, iout = _target_power_values(ir)
         if vout >= vin:
             raise ValueError("ideal buck optimization needs output voltage below input voltage")
@@ -542,6 +599,9 @@ class BuckParameterOptimizer:
             duty_target,
             solve_ideal_buck_dc,
             "dc_buck",
+            # The buck ratio is exact and linear: vout = vin * d.
+            exact_duty=lambda rail, out: out / rail,
+            loss_parameters=_loss_model_for(ir),
         )
         transient = simulate_ideal_averaged_converter(vin, params, solve_ideal_buck_dc)
         return BuckOptimizationResult(
@@ -567,6 +627,9 @@ class SepicParameterOptimizer:
             duty_target,
             solve_ideal_sepic_dc,
             "dc_sepic",
+            # vout = vin * d / (1 - d), i.e. gain = 1 (the `vin` argument is the rail).
+            exact_duty=lambda rail, out: _exact_duty_for_ratio(out, rail),
+            loss_parameters=_loss_model_for(ir),
         )
         transient = simulate_ideal_averaged_converter(vin, params, solve_ideal_sepic_dc)
         return SepicOptimizationResult(
@@ -601,14 +664,38 @@ class FlybackParameterOptimizer:
             ratio_bounds,
         ]
         ripple_limit = float(target.get("ripple_mv") or float("inf"))
+        loss_parameters = _loss_model_for(ir)
+        bounds = _loss_aware_frequency_bounds(bounds, loss_parameters=loss_parameters)
+        # With a loss model the conversion ratio is pinned per choice of turns
+        # ratio, so the duty cycle is solved for rather than searched.
+        fixed_duty = (
+            _exact_duty_for_ratio(vout, vin, gain=initial_ratio)
+            if loss_parameters is not None
+            else None
+        )
+        if fixed_duty is not None:
+            bounds[0] = (max(0.02, fixed_duty - 1e-9), min(0.98, fixed_duty + 1e-9))
 
-        def objective(values) -> float:
+        def base_objective(values, dc: BoostOperatingPoint) -> float:
             params = flyback_parameters_from_values(values, load)
-            dc = solve_ideal_flyback_dc(vin, params)
             voltage_error = abs(dc.output_voltage_v - vout) / vout
             ripple_error = 0.0 if not math.isfinite(ripple_limit) else max(0.0, dc.predicted_ripple_mv / ripple_limit - 1.0)
             size_penalty = 0.002 * (math.log10(params.inductance_h / 100e-6) ** 2 + math.log10(params.capacitance_f / 100e-6) ** 2 + math.log10(params.turns_ratio) ** 2)
             return 100.0 * voltage_error**2 + 5.0 * ripple_error**2 + size_penalty
+
+        objective = _stage_efficiency_objective(ir, base_objective, weight=None)
+
+        def solve_stage(values) -> BoostOperatingPoint:
+            params = flyback_parameters_from_values(values, load)
+            if loss_parameters is None:
+                return solve_ideal_flyback_dc(vin, params)
+            # The duty cycle must track the candidate's own turns ratio.
+            duty = _exact_duty_for_ratio(vout, vin, gain=params.turns_ratio)
+            tracked = replace(params, duty_cycle=duty)
+            return solve_ideal_flyback_dc(vin, tracked, loss_parameters=loss_parameters)
+
+        def evaluate(values) -> float:
+            return objective(values, solve_stage(values))
 
         run = _solve_power_problem(
             _power_problem(
@@ -616,15 +703,23 @@ class FlybackParameterOptimizer:
                 bounds,
                 include_turns_ratio=True,
                 initial_values={
-                    "duty_cycle": _bounded_initial(duty_target, bounds[0]),
+                    "duty_cycle": _bounded_initial(
+                        fixed_duty if fixed_duty is not None else duty_target, bounds[0]
+                    ),
                     "turns_ratio": initial_ratio,
                 },
             ),
-            objective,
+            evaluate,
             ir.optimization,
         )
         params = flyback_parameters_from_values(run.values, load)
-        dc = solve_ideal_flyback_dc(vin, params)
+        if loss_parameters is not None:
+            params = replace(
+                params, duty_cycle=_exact_duty_for_ratio(vout, vin, gain=params.turns_ratio)
+            )
+        dc = solve_ideal_flyback_dc(
+            vin, params, loss_parameters=loss_parameters
+        )
         transient = simulate_ideal_flyback(vin, params)
         components = tuple(_materialize_component(component, params) for component in candidate.components)
         materialized_candidate = _candidate_with_materialized_graph(
@@ -719,6 +814,84 @@ def _target_power_values(ir: UnifiedIR) -> tuple[float, float, float]:
     return vin, vout, iout
 
 
+def _exact_duty_for_ratio(vout: float, vin: float, *, offset: float = 0.0, gain: float = 1.0) -> float:
+    """Invert an ideal boost-like ratio ``vout = gain * vin * d / (1 - d) + offset``.
+
+    Used to drive the conversion ratio to its target exactly when a loss model
+    is active: with a fixed load the output voltage is then pinned, which is
+    what makes the loss estimate -- and therefore the efficiency objective --
+    physically meaningful instead of a function of a mis-set duty cycle.
+    """
+
+    numerator = vout - offset
+    denominator = gain * vin + numerator
+    if denominator == 0.0:
+        raise ValueError("conversion ratio is degenerate for this operating point")
+    duty = numerator / denominator
+    if not 0.0 < duty < 1.0:
+        raise ValueError(f"conversion ratio yields an unrealisable duty cycle {duty!r}")
+    return duty
+
+
+def _stage_efficiency_objective(
+    ir: UnifiedIR,
+    base: Callable[[Any, BoostOperatingPoint], float],
+    *,
+    weight: float | None,
+) -> Callable[[Any, BoostOperatingPoint], float]:
+    """Add a loss term to a stage objective when the loss model is enabled.
+
+    The weight defaults to the spec's ``weights.efficiency`` so a user asking
+    for maximum efficiency gets it without a second knob to discover.
+    """
+
+    resolved = weight
+    if resolved is None:
+        weights = dict(ir.optimization.get("weights", {}) or {})
+        raw = weights.get("efficiency")
+        resolved = float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else 0.0
+    if resolved == 0.0:
+        return base
+
+    def objective(values: Any, dc: BoostOperatingPoint) -> float:
+        return base(values, dc) + resolved * (1.0 - dc.efficiency)
+
+    return objective
+
+
+def _loss_model_for(ir: UnifiedIR) -> "LossParameters | None":
+    """Read ``optimization.loss_model``; absent or disabled means lossless."""
+
+    options = ir.optimization.get("loss_model", {}) or {}
+    if not bool(options.get("enabled", False)):
+        return None
+    return loss_parameters_from_options(options)
+
+
+#: With only switching loss modelled (no core loss), the optimiser would drive
+#: the switching frequency to its lower bound because that reduces transition
+#: and capacitance loss for free.  Real magnetics make low frequency expensive:
+#: core loss falls with frequency but the core must then be larger.  Until a
+#: core model exists, a floor keeps the result in a buildable range.
+_LOSS_MODEL_MIN_FREQUENCY_HZ = 50e3
+
+
+def _loss_aware_frequency_bounds(
+    bounds: list[tuple[float, float]],
+    *,
+    loss_parameters: "LossParameters | None",
+) -> list[tuple[float, float]]:
+    if loss_parameters is None:
+        return bounds
+    lower, upper = bounds[3]
+    floor = min(_LOSS_MODEL_MIN_FREQUENCY_HZ, upper)
+    if lower >= floor:
+        return bounds
+    updated = list(bounds)
+    updated[3] = (floor, upper)
+    return updated
+
+
 def _optimize_four_parameter_converter(
     ir: UnifiedIR,
     vin: float,
@@ -727,20 +900,34 @@ def _optimize_four_parameter_converter(
     duty_target: float,
     dc_solver,
     family: str,
+    *,
+    exact_duty: Callable[[float, float], float] | None = None,
+    loss_parameters: "LossParameters | None" = None,
 ):
     load = vout / iout
     ranges = ir.constraints.get("parameter_ranges", {})
-    bounds = [
-        _range_or(ranges, "duty_cycle", (max(0.05, duty_target - 0.25), min(0.95, duty_target + 0.25))),
-        _range_or(ranges, "L", (10e-6, 2e-3)),
-        _range_or(ranges, "C", (10e-6, 5e-3)),
-        _range_or(ranges, "switching_frequency_hz", (20e3, 500e3)),
-    ]
+    bounds = _loss_aware_frequency_bounds(
+        [
+            _range_or(ranges, "duty_cycle", (max(0.05, duty_target - 0.25), min(0.95, duty_target + 0.25))),
+            _range_or(ranges, "L", (10e-6, 2e-3)),
+            _range_or(ranges, "C", (10e-6, 5e-3)),
+            _range_or(ranges, "switching_frequency_hz", (20e3, 500e3)),
+        ],
+        loss_parameters=loss_parameters,
+    )
     ripple_limit = float(ir.primary_target.get("ripple_mv") or float("inf"))
+    # With a loss model the conversion ratio is pinned by construction, so the
+    # duty cycle is no longer a free variable to be penalised into place.
+    solve_stage = (
+        (lambda values, params: dc_solver(vin, params, loss_parameters=loss_parameters))
+        if loss_parameters is not None
+        else (lambda values, params: dc_solver(vin, params))
+    )
+    if loss_parameters is not None and exact_duty is not None:
+        bounds[0] = (max(0.02, exact_duty(vin, vout) - 1e-9), min(0.98, exact_duty(vin, vout) + 1e-9))
 
-    def objective(values) -> float:
+    def base_objective(values, dc: BoostOperatingPoint) -> float:
         params = boost_parameters_from_values(values, load)
-        dc = dc_solver(vin, params)
         voltage_error = abs(dc.output_voltage_v - vout) / vout
         ripple_error = (
             0.0
@@ -753,17 +940,26 @@ def _optimize_four_parameter_converter(
         )
         return 100.0 * voltage_error**2 + 5.0 * ripple_error**2 + size_penalty
 
+    objective = _stage_efficiency_objective(ir, base_objective, weight=None)
+
+    def evaluate(values) -> float:
+        params = boost_parameters_from_values(values, load)
+        return objective(values, solve_stage(values, params))
+
     result = _solve_power_problem(
         _power_problem(
             family,
             bounds,
-            initial_values={"duty_cycle": _bounded_initial(duty_target, bounds[0])},
+            initial_values={"duty_cycle": _bounded_initial(
+                exact_duty(vin, vout) if (loss_parameters is not None and exact_duty) else duty_target,
+                bounds[0],
+            )},
         ),
-        objective,
+        evaluate,
         ir.optimization,
     )
     params = boost_parameters_from_values(result.values, load)
-    return params, dc_solver(vin, params), result
+    return params, solve_stage(result.values, params), result
 
 
 def _power_problem(
