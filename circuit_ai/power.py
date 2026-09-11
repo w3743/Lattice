@@ -804,16 +804,71 @@ class PowerStageModel:
     Everything topology-specific stays in this module: the capability layer and
     simulator backends only see `parameter_type` and a two-argument `dc_solver`
     that both speak `PowerStageParameters`.
+
+    ``conversion_ratio`` is the family's ideal ratio as a function of duty and
+    turns ratio.  Everything else about whether the family can serve a request --
+    which target ratios are reachable -- is derived from it, so a new family
+    states one function rather than a table of ranges that could drift from the
+    solver it describes.
     """
 
     solver_id: str
     family: str
     optimizer_type: type
     dc_solver: Callable[[float, PowerStageParameters], BoostOperatingPoint]
+    conversion_ratio: Callable[[float, float], float] | None = None
+    #: Duty cycle outside this band is not usable in a real converter: below it
+    #: the controller has no resolution, above it there is no off-time to reset
+    #: the magnetics.
+    duty_limits: tuple[float, float] = (0.05, 0.95)
+    #: Turns-ratio range to consider when the family is isolated.
+    turns_ratio_limits: tuple[float, float] | None = None
 
     @property
     def parameter_type(self) -> type:
         return PowerStageParameters
+
+    def reachable_ratio_range(self) -> tuple[float, float] | None:
+        """Conversion ratios this family can produce inside its usable duty band.
+
+        ``None`` when the family has not declared a ratio, in which case no
+        reachability claim is made about it.
+        """
+
+        if self.conversion_ratio is None:
+            return None
+        low_duty, high_duty = self.duty_limits
+        if self.turns_ratio_limits is None:
+            ratios = [
+                self.conversion_ratio(duty, 1.0)
+                for duty in (low_duty, high_duty)
+            ]
+        else:
+            low_ratio, high_ratio = self.turns_ratio_limits
+            ratios = [
+                self.conversion_ratio(duty, turns)
+                for duty in (low_duty, high_duty)
+                for turns in (low_ratio, high_ratio)
+            ]
+        finite = [value for value in ratios if math.isfinite(value) and value > 0.0]
+        if not finite:
+            return None
+        return min(finite), max(finite)
+
+    def can_reach_ratio(self, target_ratio: float) -> bool:
+        """Whether *target_ratio* (vout/vin) is inside the reachable band.
+
+        Families with no declared ratio are treated as unconstrained, so an
+        undeclared family is never rejected on a claim it did not make.
+        """
+
+        bounds = self.reachable_ratio_range()
+        if bounds is None:
+            return True
+        low, high = bounds
+        # A small tolerance keeps boundary-exact requests (a SEPIC at d = 0.5 for
+        # unity gain, say) from being rejected by floating-point noise.
+        return low * (1.0 - 1e-9) <= target_ratio <= high * (1.0 + 1e-9)
 
     @property
     def optimizer_capability_id(self) -> str:
@@ -842,26 +897,45 @@ POWER_STAGE_MODELS: tuple[PowerStageModel, ...] = (
         family="dc_buck",
         optimizer_type=BuckParameterOptimizer,
         dc_solver=_stage_dc_solver(boost_parameters_from_values, solve_ideal_buck_dc),
+        # vout = vin * d : step-down only.
+        conversion_ratio=lambda duty, turns: duty,
     ),
     PowerStageModel(
         solver_id="ideal_boost_averaged",
         family="dc_boost",
         optimizer_type=BoostParameterOptimizer,
         dc_solver=_stage_dc_solver(boost_parameters_from_values, solve_ideal_boost_dc),
+        # vout = vin / (1 - d) : step-up only.
+        conversion_ratio=lambda duty, turns: 1.0 / (1.0 - duty),
     ),
     PowerStageModel(
         solver_id="ideal_sepic_averaged",
         family="dc_sepic",
         optimizer_type=SepicParameterOptimizer,
         dc_solver=_stage_dc_solver(boost_parameters_from_values, solve_ideal_sepic_dc),
+        # vout = vin * d / (1 - d) : spans step-down and step-up through unity.
+        conversion_ratio=lambda duty, turns: duty / (1.0 - duty),
     ),
     PowerStageModel(
         solver_id="ideal_flyback_averaged",
         family="isolated_flyback",
         optimizer_type=FlybackParameterOptimizer,
         dc_solver=_stage_dc_solver(flyback_parameters_from_values, solve_ideal_flyback_dc),
+        # vout = n * vin * d / (1 - d).
+        conversion_ratio=lambda duty, turns: turns * duty / (1.0 - duty),
+        turns_ratio_limits=(0.05, 4.0),
     ),
 )
+
+
+def stage_model_by_solver_id(solver_id: str) -> PowerStageModel | None:
+    """Look up a registered stage by the id a knowledge production declares."""
+
+    wanted = str(solver_id)
+    for stage in POWER_STAGE_MODELS:
+        if stage.solver_id == wanted:
+            return stage
+    return None
 
 
 def _target_power_values(ir: UnifiedIR) -> tuple[float, float, float]:

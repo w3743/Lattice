@@ -364,12 +364,74 @@ replay 按 spec 的训练/验证隔离）经核查确实缺少对应测试，不
 因为 `topology_grammar` 生成的是 flyback/SEPIC 变体，不含正激。这是**拓扑生成**的限制，
 不是架构限制；测试在两个方向上都加了断言，避免"注册了但没接线"被误判为通过。
 
-### 11.4 下一步（按价值排序）
+### 11.4 拓扑生成的可达性检查与数据化扩展（2026-09-11，第二轮）
+
+§11.3 的边界暴露出：新族能被**注册**并正确求解，但**不会被生成**。本轮处理这一层。
+
+#### 11.4.1 变比可达性（修掉一个真实缺陷）
+
+`PowerTopologyGrammar` 原先只用知识库的粗粒度 `voltage_relation`（`step_up`/`step_down`/`any`）
+过滤，**完全不检查目标变比是否落在某族可实现的范围内**。后果：一个 40 倍升压请求
+（5 V → 200 V）会通过 `step_up` 过滤、被构造成候选、然后在优化阶段才失败，既浪费搜索
+又给出令人困惑的错误。
+
+现在 `PowerStageModel` 增加了 `conversion_ratio`（族自己的理想变比函数）、`duty_limits`
+与 `turns_ratio_limits`，并由它们**推导**出 `reachable_ratio_range()` 与
+`can_reach_ratio()`。`_rejection_reason` 用它在构造后立即拒绝不可达候选，理由写明可达带：
+
+```
+dc_boost cannot produce a conversion ratio of 40 inside its usable duty band (reachable 1.053..20)
+dc_buck  cannot produce a conversion ratio of 0.02 inside its usable duty band (reachable 0.05..0.95)
+```
+
+实测可达带（占空比取 0.05–0.95，匝比取 0.05–4）：
+
+| 族 | 可达变比 |
+|---|---|
+| `dc_buck` | 0.05 – 0.95（只能降压） |
+| `dc_boost` | 1.053 – 20（只能升压） |
+| `dc_sepic` | 0.0526 – 19（跨单位增益） |
+| `isolated_flyback` | 0.00263 – 76（匝比使其覆盖最广） |
+
+**关键设计选择**：可达带由族的变比函数**推导**，不是手写表。手写表会与它所描述的 solver
+脱节——这正是上一轮踩过的坑（代数等价但位级不同的算式）。未声明变比的族不做任何可达性
+断言，因此不会因为"没声明"而被拒绝。
+
+#### 11.4.2 生成层是数据化的（已实测）
+
+新增一个**可被生成**的拓扑不需要改代码，只需在知识库 YAML 里加一条 production：
+它用**已有的功能模块**（`two_terminal_inductor`、`pwm_switch`、`rectifier`、
+`isolated_transformer`、`external_two_terminal_capacitor`、`external_resistive_load`）
+组合出新拓扑，并声明 `family`、`solver`、`applicability` 与 `metadata.isolated`。
+
+实测：把正激变换器的 production 加入临时知识库后，`PowerTopologyGrammar` **立即生成**了
+`grammar_ideal_forward`，且与既有候选图不重复。
+
+**过程中确认的两件事**：
+
+- `metadata.isolated: true` 是**知识声明**而非从模块列表推导出来的——隔离契约必须显式声明，
+  否则候选会以 `isolation contract does not match candidate` 被拒。
+- 已声明的 production **不豁免**于可达性检查：它的 solver 若未注册为 `PowerStageModel`，
+  就不做可达性断言（无声明即无断言），但一旦注册就同样受约束。
+
+#### 11.4.3 与 §11.3 的关系
+
+两轮合起来，把一个族的完整落地路径拆清了：
+
+| 要做的事 | 成本 |
+|---|---|
+| 让族能**求解**（物理方程） | 1 个函数、3 个事实；`circuit_ai/` 零改动（§11.3） |
+| 让族能**被生成**（拓扑组合） | 1 条知识库 production，用已有模块组合；代码零改动（§11.4.2） |
+| 让族受**可达性**约束 | 注册为 `PowerStageModel` 并声明 `conversion_ratio` |
+
+三件事都不需要改主流程。
+
+### 11.5 下一步（按价值排序）
 
 1. **闭环/稳压**（§11.2，最高价值）：完整做法是反馈补偿设计；当前只做到
    "选择在哪个轨上定标"并如实报告剩余偏差。
-2. **拓扑生成可扩展性**：让新族能被 `topology_grammar` 生成而不只是被注册，
-   这是 §11.3 边界所暴露的下一个瓶颈。
-3. **多分析类型**：目前 AC 与 DC 电源是两条路径，尚未统一到同一包络/角框架下。
-4. **10 个规划-执行不一致用例**（§10）：需用户拍板补能力还是收窄承诺。
+2. **多分析类型**：目前 AC 与 DC 电源是两条路径，尚未统一到同一包络/角框架下。
+3. **10 个规划-执行不一致用例**（§10）：需用户拍板补能力还是收窄承诺。
+4. **把正激 production 正式并入 `power_topologies.yaml`**：目前它只存在于测试里，
+   作为"数据化扩展"的活证据；是否正式纳入需用户确认（会改变默认候选集）。
 

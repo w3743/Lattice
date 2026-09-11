@@ -391,7 +391,45 @@ def _rejection_reason(ir: UnifiedIR, candidate: TopologyCandidate, *, isolated: 
         return "a non-transformer path crosses the galvanic isolation boundary"
     if not candidate.metadata.get("solver"):
         return "no physics solver is bound to this production"
+    unreachable = _unreachable_ratio_reason(candidate, ir)
+    if unreachable is not None:
+        return unreachable
     return None
+
+
+def _unreachable_ratio_reason(candidate: TopologyCandidate, ir: UnifiedIR) -> str | None:
+    """Reject a candidate whose family cannot produce the requested ratio.
+
+    Applicability in the knowledge base is deliberately coarse -- ``step_up`` or
+    ``step_down`` -- which says nothing about whether the *target* ratio is
+    reachable.  A boost cannot serve unity gain, and a 10x step-up needs a duty
+    cycle above the usable band.  Those candidates used to be constructed and
+    then fail at optimisation time, which wastes the search and reports a
+    confusing failure; the family's own ratio function answers this directly.
+
+    A family that declares no ratio is never rejected on a claim it did not
+    make, so undeclared models keep their previous behaviour.
+    """
+
+    from .power import stage_model_by_solver_id
+
+    stage = stage_model_by_solver_id(str(candidate.metadata.get("solver")))
+    if stage is None:
+        return None
+    target = ir.primary_target
+    vin = float(target.get("input_voltage_v") or ir.operating_point.get("supply_voltage_v") or 0.0)
+    vout = float(target.get("output_voltage_v") or 0.0)
+    if vin <= 0.0 or vout <= 0.0:
+        return None
+    required_ratio = vout / vin
+    if stage.can_reach_ratio(required_ratio):
+        return None
+    bounds = stage.reachable_ratio_range()
+    span = f"{bounds[0]:.4g}..{bounds[1]:.4g}" if bounds is not None else "unknown"
+    return (
+        f"{stage.family} cannot produce a conversion ratio of {required_ratio:.4g} "
+        f"inside its usable duty band (reachable {span})"
+    )
 
 
 def _ports_connected(candidate: TopologyCandidate, ir: UnifiedIR) -> bool:
