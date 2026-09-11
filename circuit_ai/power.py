@@ -7,6 +7,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar
 
+from .acceptance import (
+    AcceptanceDomain,
+    DesignContext,
+    acceptance_fields,
+    register_domain,
+)
 from .experts import TopologyCandidate
 from .ir import IRComponent, UnifiedIR
 from .load_step import LoadStepResult, evaluate_load_step, load_step_from_mapping
@@ -605,16 +611,7 @@ class BoostParameterOptimizer:
             optimizer_message=run.message,
             objective=float(run.objective_values["power.objective"]),
             optimization_run=run,
-            envelope_analysis=_stage_envelope_analysis(
-                ir,
-                params,
-                nominal_vout=vout,
-                nominal_iout=iout,
-                dc_solver=solve_ideal_boost_dc,
-                loss_parameters=loss_parameters,
-                duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
-            ),
-            load_step=_load_step_for(ir, params, vout=vout, iout=iout),
+            **_acceptance(ir, params, vin, vout, iout, design_rail, solve_ideal_boost_dc, loss_parameters, BoostOptimizationResult),
         )
 
 
@@ -648,16 +645,7 @@ class BuckParameterOptimizer:
             optimizer_message=result.message,
             objective=float(result.objective_values["power.objective"]),
             optimization_run=result,
-            envelope_analysis=_stage_envelope_analysis(
-                ir,
-                params,
-                nominal_vout=vout,
-                nominal_iout=iout,
-                dc_solver=solve_ideal_buck_dc,
-                loss_parameters=_loss_model_for(ir),
-                duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
-            ),
-            load_step=_load_step_for(ir, params, vout=vout, iout=iout),
+            **_acceptance(ir, params, vin, vout, iout, design_rail, solve_ideal_buck_dc, _loss_model_for(ir), BuckOptimizationResult),
         )
 
 
@@ -689,16 +677,7 @@ class SepicParameterOptimizer:
             optimizer_message=result.message,
             objective=float(result.objective_values["power.objective"]),
             optimization_run=result,
-            envelope_analysis=_stage_envelope_analysis(
-                ir,
-                params,
-                nominal_vout=vout,
-                nominal_iout=iout,
-                dc_solver=solve_ideal_sepic_dc,
-                loss_parameters=_loss_model_for(ir),
-                duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
-            ),
-            load_step=_load_step_for(ir, params, vout=vout, iout=iout),
+            **_acceptance(ir, params, vin, vout, iout, design_rail, solve_ideal_sepic_dc, _loss_model_for(ir), SepicOptimizationResult),
         )
 
 
@@ -806,16 +785,7 @@ class FlybackParameterOptimizer:
             optimizer_message=run.message,
             objective=float(run.objective_values["power.objective"]),
             optimization_run=run,
-            envelope_analysis=_stage_envelope_analysis(
-                ir,
-                params,
-                nominal_vout=vout,
-                nominal_iout=iout,
-                dc_solver=solve_ideal_flyback_dc,
-                loss_parameters=loss_parameters,
-                duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
-            ),
-            load_step=_load_step_for(ir, params, vout=vout, iout=iout),
+            **_acceptance(ir, params, vin, vout, iout, design_rail, solve_ideal_flyback_dc, loss_parameters, FlybackOptimizationResult),
         )
 
 
@@ -1100,6 +1070,111 @@ def _envelope_for(ir: UnifiedIR) -> OperatingEnvelope | None:
 #: resolution, above it there is no off-time to reset the magnetics.  Kept in
 #: step with ``PowerStageModel.duty_limits``.
 _DUTY_BAND: tuple[float, float] = (0.05, 0.95)
+
+
+def _acceptance(
+    ir: UnifiedIR,
+    params: Any,
+    vin: float,
+    vout: float,
+    iout: float,
+    design_rail: float,
+    dc_solver: Any,
+    loss_parameters: LossParameters | None,
+    result_type: type,
+) -> dict[str, Any]:
+    """Every declared acceptance domain's record, ready to splat into a result.
+
+    One call site serves all four families.  Adding a domain is a registration in
+    this module rather than an edit here, which is the whole point: the four
+    result classes are copies, so a hand-wired domain had to be added four times
+    and could silently disagree between them.
+    """
+
+    return acceptance_fields(
+        _design_context(
+            ir,
+            params,
+            vin=vin,
+            vout=vout,
+            iout=iout,
+            design_rail=design_rail,
+            dc_solver=dc_solver,
+            loss_parameters=loss_parameters,
+        ),
+        result_type=result_type,
+    )
+
+
+def _design_context(
+    ir: UnifiedIR,
+    design: Any,
+    *,
+    vin: float,
+    vout: float,
+    iout: float,
+    design_rail: float,
+    dc_solver: Any = None,
+    loss_parameters: LossParameters | None = None,
+) -> DesignContext:
+    """Bundle everything the acceptance domains may need for one design."""
+
+    return DesignContext(
+        ir=ir,
+        design=design,
+        nominal_input_voltage_v=vin,
+        nominal_output_voltage_v=vout,
+        nominal_output_current_a=iout,
+        design_rail_v=design_rail,
+        dc_solver=dc_solver,
+        loss_parameters=loss_parameters,
+    )
+
+
+def _envelope_domain(context: DesignContext) -> WorstCaseSummary | None:
+    """The operating-envelope worst case for the design under test."""
+
+    return _stage_envelope_analysis(
+        context.ir,
+        context.design,
+        nominal_vout=context.nominal_output_voltage_v,
+        nominal_iout=context.nominal_output_current_a,
+        dc_solver=context.dc_solver,
+        loss_parameters=context.loss_parameters,
+        duty_schedule=_duty_schedule_for(
+            context.ir,
+            context.design,
+            vout=context.nominal_output_voltage_v,
+            iout=context.nominal_output_current_a,
+        ),
+    )
+
+
+def _load_step_domain(context: DesignContext) -> LoadStepResult | None:
+    """The load-step budget verdict for the design under test."""
+
+    return _load_step_for(
+        context.ir,
+        context.design,
+        vout=context.nominal_output_voltage_v,
+        iout=context.nominal_output_current_a,
+    )
+
+
+register_domain(
+    AcceptanceDomain(
+        name="envelope_analysis",
+        evaluate=_envelope_domain,
+        rationale="Worst case and duty reachability across the declared operating envelope.",
+    )
+)
+register_domain(
+    AcceptanceDomain(
+        name="load_step",
+        evaluate=_load_step_domain,
+        rationale="Load-step excursion and recovery against the declared budget.",
+    )
+)
 
 
 def _load_step_penalty(
