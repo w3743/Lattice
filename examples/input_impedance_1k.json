@@ -1,0 +1,27 @@
+{
+  "name": "input_impedance_1k",
+  "ports": 2,
+  "analysis": {
+    "kind": "input_impedance",
+    "input_node": "in",
+    "reference_node": "0"
+  },
+  "behavior": {
+    "kind": "constant_impedance",
+    "ohms": 1000,
+    "frequency_range_hz": [10, 100000]
+  },
+  "library": {
+    "allowed": ["R"],
+    "parameter_ranges": {
+      "R": [100, 10000]
+    }
+  },
+  "optimization": {
+    "points": 64,
+    "max_components": 1,
+    "top_k": 1,
+    "max_iterations": 80,
+    "seed": 22
+  }
+}

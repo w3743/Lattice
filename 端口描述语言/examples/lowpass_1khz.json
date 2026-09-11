@@ -1,0 +1,52 @@
+{
+  "name": "lowpass_1khz",
+  "description": "一阶 Butterworth 低通，截止 1kHz，单位增益，允许 R、C",
+  "ports": [
+    {
+      "name": "input",
+      "terminals": [
+        {"name": "in", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "output",
+      "terminals": [
+        {"name": "out", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "voltage_transfer",
+      "source_port": "input",
+      "output_port": "output",
+      "frequency_hz": [10.0, 100000.0, 160]
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "filter",
+      "filter_kind": "lowpass",
+      "order": 1,
+      "cutoff_hz": 1000.0,
+      "gain_db": 0.0,
+      "response": "butterworth",
+      "weight": 1.0,
+      "tolerance": {"relative": null, "absolute": 0.5}
+    }
+  ],
+  "constraints": {
+    "element_types": ["R", "C"],
+    "parameter_ranges": {
+      "R": [100.0, 1000000.0],
+      "C": [1e-10, 1e-4]
+    },
+    "max_component_count": 4,
+    "stability_margin_deg": 45.0
+  },
+  "operating_point": {
+    "temperature_c": 25.0
+  }
+}

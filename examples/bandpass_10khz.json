@@ -1,0 +1,26 @@
+{
+  "name": "ten_khz_bandpass",
+  "ports": 2,
+  "behavior": {
+    "kind": "bandpass",
+    "center_hz": 10000,
+    "q": 5.0,
+    "gain": 1.0,
+    "frequency_range_hz": [100, 1000000]
+  },
+  "library": {
+    "allowed": ["R", "L", "C"],
+    "parameter_ranges": {
+      "R": [1, 100000],
+      "L": [1e-6, 1],
+      "C": [1e-10, 1e-3]
+    }
+  },
+  "optimization": {
+    "points": 140,
+    "max_components": 3,
+    "top_k": 2,
+    "max_iterations": 70,
+    "seed": 17
+  }
+}

@@ -1,0 +1,286 @@
+{
+  "schema": "circuit_ai.power_family_golden",
+  "schema_version": 1,
+  "purpose": "Characterization lock for the four ideal power families (plan §18.2 适配前后等价 / §1527 golden 摘要). This records CURRENT observable behaviour so refactors are detected; it is NOT a correctness proof.",
+  "environment": {
+    "python": "3.11.9",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "pytest": "9.1.1",
+    "platform": "Windows-10-10.0.26200-SP0"
+  },
+  "determinism": {
+    "seed_source": "spec.optimization.seed (per-case, recorded above)",
+    "verified_repeatable": true,
+    "randomness": "Differential Evolution with a fixed per-spec seed; no wall-clock or PID input."
+  },
+  "tolerances": {
+    "voltage_v": {
+      "absolute": 1e-06,
+      "relative": 1e-06
+    },
+    "current_a": {
+      "absolute": 1e-09,
+      "relative": 1e-06
+    },
+    "power_w": {
+      "absolute": 1e-09,
+      "relative": 1e-06
+    },
+    "efficiency": {
+      "absolute": 1e-09,
+      "relative": 0.0
+    },
+    "ripple_mv": {
+      "absolute": 1e-06,
+      "relative": 1e-06
+    },
+    "cost_cny": {
+      "absolute": 1e-09,
+      "relative": 0.0
+    },
+    "area_mm2": {
+      "absolute": 1e-09,
+      "relative": 0.0
+    },
+    "component_count": "exact",
+    "output_error_rel": {
+      "absolute": 1e-09,
+      "relative": 1e-06
+    }
+  },
+  "families": {
+    "buck": {
+      "case_file": "测试集/pbdl/classic/dc_buck_12v_to_3v3.json",
+      "status": "available",
+      "seed": 29,
+      "spec_target": {
+        "input_voltage_v": 12.0,
+        "output_voltage_v": 3.3,
+        "output_current_a": 2.0,
+        "relative_tolerance": 0.02
+      },
+      "selected_topology": {
+        "template": "grammar_ideal_buck",
+        "family": "dc_buck",
+        "solver_id": "ideal_buck_averaged",
+        "graph_hash": "827b4902d54f5bd9c3cd6c67fa769bd015b6273d1f89e27ec2aaeb2f7bfc3223",
+        "topology_hash": "170b5a2cf58c579c4b1484391e78c1d225a873c17eb1b18cc754c5a7a6515484",
+        "domains": [
+          {
+            "domain_id": "electrical",
+            "isolated_from": []
+          }
+        ]
+      },
+      "operating_point": {
+        "input_voltage_v": 12.0,
+        "output_voltage_v": 3.2999999682815098,
+        "output_current_a": 1.9999999807766726,
+        "input_current_a": 0.54999998942717,
+        "output_power_w": 6.599999873126039,
+        "efficiency": 1.0,
+        "predicted_ripple_mv": 49.982162442840206
+      },
+      "output_error_rel": 9.611663653538128e-09,
+      "component_count": 4.0,
+      "cost_cny": 0.0,
+      "area_mm2": 0.0,
+      "validation": {
+        "passed": true,
+        "feasibility": "verified_feasible",
+        "hard_violation": 0.0,
+        "unavailable_hard_count": 0
+      },
+      "optimization_run": {
+        "solver_id": "scipy.differential_evolution",
+        "truth_evaluated": true,
+        "truth_evaluations": 1,
+        "evaluations": 766,
+        "cache_hits": 1
+      },
+      "fidelity": {
+        "simulation_requests": [
+          "ideal_averaged"
+        ]
+      },
+      "notes": "Non-isolated step-down averaged model (ideal_buck_averaged)."
+    },
+    "boost": {
+      "case_file": "测试集/pbdl/classic/dc_boost_5v_to_12v.json",
+      "status": "available",
+      "seed": 29,
+      "spec_target": {
+        "input_voltage_v": 5.0,
+        "output_voltage_v": 12.0,
+        "output_current_a": 0.3,
+        "relative_tolerance": 0.02
+      },
+      "selected_topology": {
+        "template": "ideal_asynchronous_boost",
+        "family": "dc_boost",
+        "solver_id": "ideal_boost_averaged",
+        "graph_hash": "64ac9f417c48015851a50dbb87c6690725361e0e1f3e90d4a8fcf40dc00b511e",
+        "topology_hash": "2e7e1306726f1fda940d1e00016fadb1f1551bc6eb34b4ccd2c5e15afd82e8ec",
+        "domains": [
+          {
+            "domain_id": "electrical",
+            "isolated_from": []
+          }
+        ]
+      },
+      "operating_point": {
+        "input_voltage_v": 5.0,
+        "output_voltage_v": 11.999999852697126,
+        "output_current_a": 0.29999999631742813,
+        "input_current_a": 0.7199999823236551,
+        "output_power_w": 3.599999911618276,
+        "efficiency": 1.0,
+        "predicted_ripple_mv": 5.358615890035998
+      },
+      "output_error_rel": 1.2275239491543743e-08,
+      "component_count": 4.0,
+      "cost_cny": 0.0,
+      "area_mm2": 0.0,
+      "validation": {
+        "passed": true,
+        "feasibility": "verified_feasible",
+        "hard_violation": 0.0,
+        "unavailable_hard_count": 0
+      },
+      "optimization_run": {
+        "solver_id": "scipy.differential_evolution",
+        "truth_evaluated": true,
+        "truth_evaluations": 1,
+        "evaluations": 456,
+        "cache_hits": 1
+      },
+      "fidelity": {
+        "simulation_requests": [
+          "ideal_averaged"
+        ]
+      },
+      "notes": "Non-isolated step-up averaged model (ideal_boost_averaged); manifest execution_tier=smoke."
+    },
+    "sepic": {
+      "case_file": "测试集/pbdl/classic/dc_sepic_5v_to_9v.json",
+      "status": "available",
+      "seed": 29,
+      "spec_target": {
+        "input_voltage_v": 5.0,
+        "output_voltage_v": 9.0,
+        "output_current_a": 0.5,
+        "relative_tolerance": 0.02
+      },
+      "selected_topology": {
+        "template": "ideal_asynchronous_boost",
+        "family": "dc_boost",
+        "solver_id": "ideal_boost_averaged",
+        "graph_hash": "f71a7d8450eae7c9202d5c2df7eef644899e870550b0ff03deebdd11cfb0eed7",
+        "topology_hash": "2e7e1306726f1fda940d1e00016fadb1f1551bc6eb34b4ccd2c5e15afd82e8ec",
+        "domains": [
+          {
+            "domain_id": "electrical",
+            "isolated_from": []
+          }
+        ]
+      },
+      "operating_point": {
+        "input_voltage_v": 5.0,
+        "output_voltage_v": 8.999999404855185,
+        "output_current_a": 0.49999996693639914,
+        "input_current_a": 0.8999998809710409,
+        "output_power_w": 4.499999404855204,
+        "efficiency": 1.0,
+        "predicted_ripple_mv": 11.215224276035993
+      },
+      "output_error_rel": 6.612720168972272e-08,
+      "component_count": 4.0,
+      "cost_cny": 0.0,
+      "area_mm2": 0.0,
+      "validation": {
+        "passed": true,
+        "feasibility": "verified_feasible",
+        "hard_violation": 0.0,
+        "unavailable_hard_count": 0
+      },
+      "optimization_run": {
+        "solver_id": "scipy.differential_evolution",
+        "truth_evaluated": true,
+        "truth_evaluations": 1,
+        "evaluations": 436,
+        "cache_hits": 1
+      },
+      "fidelity": {
+        "simulation_requests": [
+          "ideal_averaged"
+        ]
+      },
+      "notes": "CHARACTERIZATION OF CURRENT BEHAVIOUR, NOT A CORRECTNESS CLAIM: the dc_sepic_* spec currently resolves to the boost family/solver (ideal_asynchronous_boost / ideal_boost_averaged) even though the knowledge base declares grammar_ideal_sepic (family dc_sepic, solver ideal_sepic_averaged) with the same applicability (isolation forbidden, step_up). Locked here so any change to production selection is detected. See report section E5."
+    },
+    "flyback": {
+      "case_file": "测试集/pbdl/classic/dc_flyback_5v_to_12v.json",
+      "status": "available",
+      "seed": 29,
+      "spec_target": {
+        "input_voltage_v": 5.0,
+        "output_voltage_v": 12.0,
+        "output_current_a": 1.0,
+        "relative_tolerance": 0.02
+      },
+      "selected_topology": {
+        "template": "ideal_isolated_flyback",
+        "family": "isolated_flyback",
+        "solver_id": "ideal_flyback_averaged",
+        "graph_hash": "d2a8ba4c70d2f303ca968343d157fd0efc9bfa38252f6449ee32db3f4c165e67",
+        "topology_hash": "0db1b733da1dfbd6e1821e21b661ff5c55485a5526f824ef508071865e5a380d",
+        "domains": [
+          {
+            "domain_id": "input_domain",
+            "isolated_from": [
+              "output_domain"
+            ]
+          },
+          {
+            "domain_id": "output_domain",
+            "isolated_from": [
+              "input_domain"
+            ]
+          }
+        ]
+      },
+      "operating_point": {
+        "input_voltage_v": 5.0,
+        "output_voltage_v": 12.000000212971575,
+        "output_current_a": 1.0000000177476311,
+        "input_current_a": 2.4000000851886307,
+        "output_power_w": 12.000000425943153,
+        "efficiency": 1.0,
+        "predicted_ripple_mv": 49.99066671872694
+      },
+      "output_error_rel": 1.7747631216498878e-08,
+      "component_count": 4.0,
+      "cost_cny": 0.0,
+      "area_mm2": 0.0,
+      "validation": {
+        "passed": true,
+        "feasibility": "verified_feasible",
+        "hard_violation": 0.0,
+        "unavailable_hard_count": 0
+      },
+      "optimization_run": {
+        "solver_id": "scipy.differential_evolution",
+        "truth_evaluated": true,
+        "truth_evaluations": 1,
+        "evaluations": 918,
+        "cache_hits": 2
+      },
+      "fidelity": {
+        "simulation_requests": [
+          "ideal_averaged"
+        ]
+      },
+      "notes": "Isolated family; the graph carries two domains with symmetric isolated_from and the ideal_transformer is the only cross-domain element."
+    }
+  }
+}

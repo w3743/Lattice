@@ -1,0 +1,46 @@
+{
+  "name": "bandgap_2v5",
+  "description": "带隙基准：2.5V输出，5V供电，-40~85°C温度系数 < 50ppm/°C",
+  "ports": [
+    {
+      "name": "power_input",
+      "terminals": [
+        {"name": "vcc", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "vref_output",
+      "terminals": [
+        {"name": "vref", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "dc_transfer",
+      "source_port": "power_input",
+      "output_port": "vref_output"
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "dc",
+      "input_voltage_v": 5.0,
+      "output_voltage_v": 2.500,
+      "weight": 1.0,
+      "description": "输出电压 2.5V ± 1%"
+    }
+  ],
+  "constraints": {
+    "element_types": ["R", "NPN", "PNP"],
+    "max_component_count": 12,
+    "max_power_mw": 5.0,
+    "preferred_values": "E24"
+  },
+  "operating_point": {
+    "supply_voltage_v": 5.0,
+    "temperature_c": 25.0
+  }
+}

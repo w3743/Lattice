@@ -1,0 +1,75 @@
+"""Public simulation contracts and backend adapters."""
+
+from .contracts import (
+    SIMULATION_REQUEST_SCHEMA,
+    SIMULATION_RESULT_SCHEMA,
+    SIMULATION_SCHEMA_VERSION,
+    AnalysisSpec,
+    Diagnostic,
+    Excitation,
+    ObservableSpec,
+    OperatingConditions,
+    Quantity,
+    ResultAxis,
+    SimulationContractError,
+    SimulationRequest,
+    SimulationResult,
+    SimulationStatus,
+    SweepSpec,
+    Waveform,
+)
+from .request_builder import (
+    legacy_ac_simulation_request,
+    simulation_requests_for_task,
+    simulation_requests_for_tasks,
+)
+from .backends import (
+    AnalyticPowerSimulatorBackend,
+    BackendCapabilities,
+    LinearCompiledModel,
+    LinearMNASimulatorBackend,
+    PowerCompiledModel,
+    TorchMNASimulatorBackend,
+    UnsupportedModelError,
+)
+from .ngspice_backend import (
+    NgspiceCompiledModel,
+    NgspiceSimulatorBackend,
+    build_ngspice_netlist,
+)
+from .execution import SimulationCacheKey, SimulationExecutor, SimulationResultCache
+
+__all__ = [
+    "SIMULATION_REQUEST_SCHEMA",
+    "SIMULATION_RESULT_SCHEMA",
+    "SIMULATION_SCHEMA_VERSION",
+    "AnalysisSpec",
+    "AnalyticPowerSimulatorBackend",
+    "BackendCapabilities",
+    "Diagnostic",
+    "Excitation",
+    "ObservableSpec",
+    "OperatingConditions",
+    "LinearCompiledModel",
+    "LinearMNASimulatorBackend",
+    "NgspiceCompiledModel",
+    "NgspiceSimulatorBackend",
+    "PowerCompiledModel",
+    "TorchMNASimulatorBackend",
+    "Quantity",
+    "ResultAxis",
+    "SimulationContractError",
+    "SimulationExecutor",
+    "SimulationCacheKey",
+    "SimulationResultCache",
+    "SimulationRequest",
+    "SimulationResult",
+    "SimulationStatus",
+    "SweepSpec",
+    "UnsupportedModelError",
+    "Waveform",
+    "build_ngspice_netlist",
+    "legacy_ac_simulation_request",
+    "simulation_requests_for_task",
+    "simulation_requests_for_tasks",
+]

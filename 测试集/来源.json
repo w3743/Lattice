@@ -1,0 +1,45 @@
+{
+  "schema": "circuit_ai.requirement_sources",
+  "sources": {
+    "analog_filters": {
+      "title": "Analog Devices active anti-aliasing filter design note",
+      "url": "https://www.analog.com/en/resources/design-notes/2021/11/09/04/34/high-frequency-active-antialiasing-filters.html",
+      "use": "Filter and anti-aliasing requirement families."
+    },
+    "receiver_filter": {
+      "title": "Analog Devices AN-2545 high-IF receiver front end",
+      "url": "https://www.analog.com/en/resources/app-notes/an-2545.html",
+      "use": "Band-pass and ADC-interface requirement families."
+    },
+    "power_topologies": {
+      "title": "TI power-topology selection brief SLVAFJ4",
+      "url": "https://www.ti.com/document-viewer/lit/html/slvafj4",
+      "use": "Buck, boost, SEPIC, flyback and isolation requirement families."
+    },
+    "flyback_selector": {
+      "title": "TI Fly-Buck and Flyback topology selector",
+      "url": "https://www.ti.com/tool/FLYBUCK-FLYBACK-DESIGN-CALC",
+      "use": "Isolated-output and multi-output power-supply requirement families."
+    },
+    "classic_textbook": {
+      "title": "All About Circuits electronics textbook",
+      "url": "https://www.allaboutcircuits.com/textbook/",
+      "use": "Classical amplifier, comparator, oscillator, rectifier and driver families."
+    },
+    "ieee_benchmarks": {
+      "title": "IEEE P2427 analogue benchmark circuits",
+      "url": "https://sagroups.ieee.org/2427/analogue-benchmark-circuits/",
+      "use": "External benchmark inventory; no third-party netlist is copied into this suite."
+    },
+    "analoggym": {
+      "title": "AnalogGym: An Open and Practical Testing Suite for Analog Circuit Synthesis",
+      "url": "https://arxiv.org/abs/2409.08534",
+      "use": "External analog-synthesis benchmark inventory; PDK-dependent data remains external."
+    },
+    "hf_circuit_benchmarks": {
+      "title": "Circuit Design Benchmarks dataset card",
+      "url": "https://huggingface.co/datasets/englund/circuit-design-benchmarks/viewer",
+      "use": "Requirement-level benchmark inventory; values here are independently expressed in PBDL."
+    }
+  }
+}

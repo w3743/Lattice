@@ -1,0 +1,56 @@
+{
+  "name": "differential_amplifier",
+  "description": "差分放大器：差模增益 40dB，共模抑制 > 60dB，单端输出",
+  "ports": [
+    {
+      "name": "in_plus",
+      "terminals": [
+        {"name": "vp", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "in_minus",
+      "terminals": [
+        {"name": "vn", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "output",
+      "terminals": [
+        {"name": "vout", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "voltage_transfer",
+      "source_port": "in_plus",
+      "output_port": "output",
+      "frequency_hz": [10.0, 10000000.0, 160],
+      "description": "差模传输（in_minus接地时）"
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "amplifier",
+      "gain_db": 40.0,
+      "bandwidth_hz": [10.0, 1000000.0],
+      "input_impedance_ohm": 100000.0,
+      "weight": 1.0,
+      "tolerance": {"relative": 0.05},
+      "description": "差模增益 100倍=40dB"
+    }
+  ],
+  "constraints": {
+    "element_types": ["R", "opamp"],
+    "max_component_count": 6,
+    "preferred_values": "E24"
+  },
+  "operating_point": {
+    "supply_voltage_v": 12.0,
+    "supply_bipolar": true
+  }
+}

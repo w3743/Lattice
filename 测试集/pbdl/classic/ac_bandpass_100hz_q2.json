@@ -1,0 +1,92 @@
+{
+  "name": "ac_bandpass_100hz_q2",
+  "description": "机械振动检测：100 Hz、Q=2 带通",
+  "ports": [
+    {
+      "name": "input",
+      "role": "input",
+      "terminals": [
+        {
+          "name": "in",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    },
+    {
+      "name": "output",
+      "role": "output",
+      "terminals": [
+        {
+          "name": "out",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "voltage_transfer",
+      "source_port": "input",
+      "output_port": "output",
+      "frequency_hz": [
+        1.0,
+        10000.0,
+        64
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "filter",
+      "filter_kind": "bandpass",
+      "cutoff_hz": 100.0,
+      "order": 2,
+      "gain_db": 0.0,
+      "response": "butterworth",
+      "tolerance": {
+        "absolute": 1.0
+      },
+      "q": 2.0,
+      "bandwidth_hz": 50.0
+    }
+  ],
+  "constraints": {
+    "element_types": [
+      "R",
+      "C",
+      "L"
+    ],
+    "parameter_ranges": {
+      "R": [
+        10.0,
+        10000000.0
+      ],
+      "C": [
+        1e-12,
+        0.001
+      ],
+      "L": [
+        1e-09,
+        1.0
+      ]
+    },
+    "max_component_count": 8
+  },
+  "operating_point": {
+    "temperature_c": 25.0
+  },
+  "optimization": {
+    "points": 64,
+    "max_iterations": 10,
+    "top_k": 1,
+    "seed": 17
+  }
+}

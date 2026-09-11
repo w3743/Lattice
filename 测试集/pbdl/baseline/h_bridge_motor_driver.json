@@ -1,0 +1,61 @@
+{
+  "name": "h_bridge_motor_driver",
+  "description": "H桥电机驱动：逻辑电平PWM输入→24V/2A大电流输出，带死区保护",
+  "ports": [
+    {
+      "name": "logic_input_a",
+      "terminals": [
+        {"name": "ina", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "logic_input_b",
+      "terminals": [
+        {"name": "inb", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "power_input",
+      "terminals": [
+        {"name": "vcc", "quantity": "voltage"},
+        {"name": "pgnd", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "motor_output_a",
+      "terminals": [
+        {"name": "outa", "quantity": "current"},
+        {"name": "outb", "quantity": "current"}
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "dc_transfer",
+      "source_port": "power_input",
+      "output_port": "motor_output_a"
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "dc",
+      "input_voltage_v": 24.0,
+      "output_current_a": 2.0,
+      "output_voltage_v": 24.0,
+      "efficiency": 0.90,
+      "weight": 1.0,
+      "description": "24V供电→24V/2A驱动电机"
+    }
+  ],
+  "constraints": {
+    "element_types": ["MOSFET_N", "MOSFET_P", "R", "C", "opamp"],
+    "max_component_count": 20,
+    "max_power_mw": 50000.0
+  },
+  "operating_point": {
+    "supply_voltage_v": 24.0,
+    "temperature_c": 85.0
+  }
+}

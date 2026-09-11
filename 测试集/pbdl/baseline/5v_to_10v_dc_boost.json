@@ -1,0 +1,57 @@
+{
+  "name": "5v_to_10v_dc_boost",
+  "description": "直流升压变换：入端口 5V→出端口 10V，输出电流 100mA，效率 > 80%",
+  "ports": [
+    {
+      "name": "input",
+      "terminals": [
+        {"name": "in_p", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "output",
+      "terminals": [
+        {"name": "out_p", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "dc_transfer",
+      "source_port": "input",
+      "output_port": "output"
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "dc",
+      "input_voltage_v": 5.0,
+      "output_voltage_v": 10.0,
+      "output_current_a": 0.1,
+      "efficiency": 0.80,
+      "ripple_mv": 50.0,
+      "tolerance": {"relative": 0.01},
+      "weight": 1.0
+    }
+  ],
+  "constraints": {
+    "element_types": ["R", "C", "L", "ideal_switch", "ideal_diode"],
+    "required_elements": ["L", "C", "ideal_switch", "ideal_diode"],
+    "parameter_ranges": {
+      "L": [0.00001, 0.002],
+      "C": [0.00001, 0.005]
+    },
+    "unit_costs": {"R": 0.02, "C": 0.04, "L": 0.15, "ideal_switch": 0.2, "ideal_diode": 0.08},
+    "unit_areas_mm2": {"R": 4.0, "C": 9.0, "L": 25.0, "ideal_switch": 16.0, "ideal_diode": 9.0},
+    "max_component_count": 15,
+    "max_power_mw": 1500.0,
+    "max_cost_cny": 2.0,
+    "max_area_mm2": 100.0
+  },
+  "operating_point": {
+    "supply_voltage_v": 5.0,
+    "temperature_c": 25.0
+  }
+}

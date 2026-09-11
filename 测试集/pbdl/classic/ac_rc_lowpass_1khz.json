@@ -1,0 +1,89 @@
+{
+  "name": "ac_rc_lowpass_1khz",
+  "description": "通用采样前端：1 kHz 一阶低通",
+  "ports": [
+    {
+      "name": "input",
+      "role": "input",
+      "terminals": [
+        {
+          "name": "in",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    },
+    {
+      "name": "output",
+      "role": "output",
+      "terminals": [
+        {
+          "name": "out",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "voltage_transfer",
+      "source_port": "input",
+      "output_port": "output",
+      "frequency_hz": [
+        10.0,
+        100000.0,
+        64
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "filter",
+      "filter_kind": "lowpass",
+      "cutoff_hz": 1000.0,
+      "order": 1,
+      "gain_db": 0.0,
+      "response": "butterworth",
+      "tolerance": {
+        "absolute": 1.0
+      }
+    }
+  ],
+  "constraints": {
+    "element_types": [
+      "R",
+      "C"
+    ],
+    "parameter_ranges": {
+      "R": [
+        10.0,
+        10000000.0
+      ],
+      "C": [
+        1e-12,
+        0.001
+      ],
+      "L": [
+        1e-09,
+        1.0
+      ]
+    },
+    "max_component_count": 4
+  },
+  "operating_point": {
+    "temperature_c": 25.0
+  },
+  "optimization": {
+    "points": 64,
+    "max_iterations": 10,
+    "top_k": 1,
+    "seed": 17
+  }
+}

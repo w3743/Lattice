@@ -1,0 +1,94 @@
+{
+  "name": "future_thermal_power_stage",
+  "description": "功率级热设计：结温、热阻和功耗约束",
+  "ports": [
+    {
+      "name": "input",
+      "role": "input",
+      "terminals": [
+        {
+          "name": "in",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    },
+    {
+      "name": "output",
+      "role": "output",
+      "terminals": [
+        {
+          "name": "out",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    },
+    {
+      "name": "supply",
+      "role": "power",
+      "terminals": [
+        {
+          "name": "vcc",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "thermal",
+      "domain": "dc",
+      "source_port": "input",
+      "output_port": "output"
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "dc",
+      "input_voltage_v": 5.0,
+      "output_voltage_v": 2.5,
+      "tolerance": {
+        "relative": 0.01
+      }
+    }
+  ],
+  "constraints": {
+    "element_types": [
+      "R",
+      "C",
+      "L",
+      "opamp",
+      "ideal_switch"
+    ],
+    "parameter_ranges": {
+      "R": [
+        10.0,
+        10000000.0
+      ],
+      "C": [
+        1e-12,
+        0.001
+      ],
+      "L": [
+        1e-09,
+        1.0
+      ]
+    },
+    "max_component_count": 16
+  },
+  "operating_point": {
+    "supply_voltage_v": 5.0,
+    "temperature_c": 25.0
+  }
+}

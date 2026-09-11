@@ -1,0 +1,41 @@
+{
+  "name": "one_khz_second_order_active_lowpass",
+  "ports": 2,
+  "behavior": {
+    "kind": "lowpass",
+    "cutoff_hz": 1000,
+    "gain": 1.0,
+    "order": 2,
+    "q": 0.70710678118,
+    "frequency_range_hz": [10, 100000]
+  },
+  "library": {
+    "allowed": ["R", "C", "opamp"],
+    "parameter_ranges": {
+      "R": [100, 1000000],
+      "C": [1e-10, 1e-4]
+    },
+    "unit_costs": {
+      "R": 0.02,
+      "C": 0.04,
+      "opamp": 1.5
+    },
+    "unit_areas_mm2": {
+      "R": 1.2,
+      "C": 1.8,
+      "opamp": 12.0
+    }
+  },
+  "optimization": {
+    "points": 96,
+    "max_components": 7,
+    "max_iterations": 60,
+    "top_k": 3,
+    "seed": 11,
+    "weights": {
+      "cost": 0.02,
+      "area_mm2": 0.002,
+      "topology_risk": 0.1
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "unrealizable_unstable_zpk",
+  "ports": 2,
+  "behavior": {
+    "kind": "zpk",
+    "zeros_rad_s": [],
+    "poles_rad_s": ["1000+0j"],
+    "gain": 1.0,
+    "frequency_range_hz": [10, 100000]
+  },
+  "library": {
+    "allowed": ["R", "C", "L"],
+    "parameter_ranges": {
+      "R": [10, 2000000],
+      "C": [1e-11, 1e-4],
+      "L": [1e-6, 2.0]
+    }
+  },
+  "optimization": {
+    "points": 80,
+    "max_components": 4,
+    "top_k": 1,
+    "max_iterations": 20,
+    "feasibility": {
+      "enabled": true,
+      "enforce": true
+    }
+  }
+}

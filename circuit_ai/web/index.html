@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Circuit AI Workbench</title>
+    <link rel="stylesheet" href="/app.css?v=workbench-9">
+    <link rel="stylesheet" href="/power-results.css?v=workbench-2">
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="Circuit AI 工作台首页">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><b>Circuit AI</b><small>设计工作台</small></span>
+      </a>
+      <div class="header-context">
+        <span id="design-mode" class="mode-chip">线性频域</span>
+        <span id="run-status" class="run-status">草稿 · 等待定义</span>
+        <div class="header-actions">
+          <button id="save-draft" class="header-action" type="button">保存草稿</button>
+          <button id="restore-draft" class="header-action" type="button" hidden>恢复草稿</button>
+          <button id="export-pbdl" class="header-action" type="button">导出 PBDL</button>
+          <details class="ability-menu">
+            <summary class="header-action">当前能力</summary>
+            <div class="ability-popover">
+              <b>当前执行路线</b>
+              <p id="ability-summary">PBDL → Unified IR → 候选搜索 → 仿真验证 → 证据导出</p>
+              <span>能力缺口会在检查阶段明确显示，不会伪造候选结果。</span>
+            </div>
+          </details>
+        </div>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="step-rail" aria-label="设计工作流">
+        <div class="rail-heading">
+          <span class="eyebrow">DESIGN FLOW</span>
+          <h1>从规格到可验证电路</h1>
+        </div>
+        <nav id="wizard-progress" class="wizard-progress" aria-label="设计步骤">
+          <button type="button" data-step="0" class="active"><b>01</b><span>任务边界</span><small>名称与端口数</small></button>
+          <button type="button" data-step="1"><b>02</b><span>接口定义</span><small>端口、端子与关系</small></button>
+          <button type="button" data-step="2"><b>03</b><span>行为与激励</span><small>分析、目标与波形</small></button>
+          <button type="button" data-step="3"><b>04</b><span>元件与搜索</span><small>库、模型与预算</small></button>
+          <button type="button" data-step="4"><b>05</b><span>检查与执行</span><small>规范、路线与产物</small></button>
+        </nav>
+        <section class="rail-status" aria-label="当前执行路线">
+          <span class="eyebrow">EXECUTION ROUTE</span>
+          <p id="route-summary">PBDL -> Unified IR -> 线性候选 -> 参数优化 -> Linear MNA -> 约束验证</p>
+        </section>
+        <section class="rail-note">
+          <b>约束不是提示词</b>
+          <p>端口、分析和元件库会编译为 PBDL，再由后端决定能执行的候选和验证路径。</p>
+        </section>
+      </aside>
+
+      <section id="control-panel" class="control-panel" aria-label="设计规格编辑器">
+        <div class="editor-topline">
+          <div><span class="eyebrow">SPECIFICATION</span><h2>定义设计需求</h2></div>
+          <span class="editor-hint">画布状态实时投影为 PBDL v2</span>
+        </div>
+        <aside id="result-spec-drawer" class="result-spec-drawer" aria-label="当前规格摘要">
+          <div class="result-spec-head"><div><span class="eyebrow">SPEC SUMMARY</span><h2>规格摘要</h2></div><button id="result-edit-button" class="quiet-action" type="button">返回编辑</button></div>
+          <p>结果工作区保留规格摘要；需要修改时返回对应步骤。</p>
+          <div id="result-spec-summary" class="design-summary"></div>
+        </aside>
+
+        <section id="canvas-workbench" class="canvas-workbench" aria-label="电路黑盒画布">
+          <header class="canvas-toolbar">
+            <div>
+              <span class="eyebrow">BLACK BOX MODEL</span>
+              <h2>在边界上定义端口和函数</h2>
+            </div>
+            <div class="canvas-tools" role="toolbar" aria-label="画布工具">
+              <button id="canvas-select-mode" class="canvas-tool active" type="button" title="选择端口、函数或空白区域">↖ 选择</button>
+              <button id="canvas-add-port" class="canvas-tool" type="button" title="在黑盒边界上放置端口">＋ 添加端口</button>
+              <button id="canvas-function-mode" class="canvas-tool" type="button" title="点击两个端口建立函数">↔ 连接函数</button>
+              <button id="canvas-undo" class="canvas-tool" type="button" title="撤销最近一次画布编辑" disabled>撤销</button>
+              <button id="canvas-redo" class="canvas-tool" type="button" title="重做最近一次画布编辑" disabled>重做</button>
+              <button id="canvas-fit" class="canvas-tool icon-only" type="button" title="重置画布视图" aria-label="重置画布视图">⌂</button>
+            </div>
+          </header>
+          <div class="canvas-editor">
+            <div class="canvas-stage" id="canvas-stage">
+              <svg id="circuit-canvas" viewBox="0 0 760 520" role="img" aria-label="待设计电路黑盒画布">
+                <defs>
+                  <marker id="function-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z"></path></marker>
+                </defs>
+                <rect class="canvas-grid" x="0" y="0" width="760" height="520"></rect>
+                <g id="function-layer" aria-label="函数连接"></g>
+                <rect id="circuit-boundary" class="circuit-boundary" x="180" y="60" width="400" height="400" rx="2" tabindex="0"></rect>
+                <text class="boundary-label" x="380" y="250" text-anchor="middle">待设计电路</text>
+                <text class="boundary-subtitle" x="380" y="276" text-anchor="middle">BLACK BOX</text>
+                <g id="port-layer" aria-label="电路端口"></g>
+              </svg>
+              <div id="canvas-status" class="canvas-status">点击边界或端口开始编辑</div>
+            </div>
+            <aside id="object-inspector" class="object-inspector" aria-label="对象设置">
+              <div class="inspector-head"><span id="inspector-kind" class="eyebrow">CIRCUIT</span><h3 id="inspector-title">整块电路</h3><p id="inspector-help">空白区域显示全局设计设置。</p></div>
+              <div id="inspector-content" class="inspector-content"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section data-wizard-step="0" class="editor-step">
+          <div class="step-heading"><span>步骤 1 / 5</span><h2>先划定问题边界</h2><p>端口数量决定接口规模；端口的具体物理量和关系在下一步定义。</p></div>
+          <div class="form-grid task-grid">
+            <label>任务名称<input id="name" value="browser_synthesis" autocomplete="off"></label>
+            <label>外部端口数<select id="port-count"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label>
+          </div>
+          <div class="editor-callout"><b>端口不是固定任务模板</b><span>每个端口都可以独立定义电压、电流、功率、方向、参考端、分析上下文和约束。</span></div>
+        </section>
+
+        <section data-wizard-step="1" hidden class="editor-step">
+          <div class="step-heading"><span>步骤 2 / 5</span><h2>先定义接口，再展开约束</h2><p>默认只看端口身份和关系；端子与变量约束按需展开，避免一次理解全部物理语义。</p></div>
+          <div class="subsection-head"><h3>端口定义</h3><button id="add-port" class="quiet-action" type="button">添加端口</button></div>
+          <div id="port-editor" class="port-editor"></div>
+          <div class="subsection-head relation-head"><h3>端口关系</h3><button id="add-measurement" class="quiet-action" type="button">添加关系</button></div>
+          <p class="field-note">关系决定测量、传输或隔离边界。隔离关系会自动为输出侧保留独立参考节点。</p>
+          <div id="measurement-editor" class="measurement-editor"></div>
+          <div id="port-capability" class="capability-note"></div>
+          <details class="analysis-guide">
+            <summary>分析上下文说明</summary>
+            <dl>
+              <div><dt>直流工作点</dt><dd>稳态电压、电流与功率，不使用频率。</dd></div>
+              <div><dt>瞬态</dt><dd>启动、开关、脉冲和阶跃之后的时间波形。</dd></div>
+              <div><dt>周期稳态</dt><dd>周期重复后的纹波、平均值和峰值。</dd></div>
+              <div><dt>小信号 AC</dt><dd>在工作点附近施加小扰动，得到频率响应。</dd></div>
+            </dl>
+          </details>
+        </section>
+
+        <section data-wizard-step="2" hidden class="editor-step">
+          <div class="step-heading"><span>步骤 3 / 5</span><h2>定义行为与激励</h2><p>先选择分析类型和目标，再按需展开波形采样、周期稳态等高级输入。</p></div>
+          <div class="subsection-head"><h3>激励与频域目标</h3><span class="section-caption">仅非直流需求需要填写</span></div>
+          <div id="frequency-target-fields" class="field-stack">
+            <div class="form-grid">
+              <label>测量类型<select id="analysis-kind"><option value="voltage_transfer">电压传输</option><option value="transimpedance">跨阻</option><option value="input_impedance">输入阻抗</option><option value="output_impedance">输出阻抗</option></select></label>
+              <label>目标函数<select id="behavior-kind"><option value="lowpass">低通</option><option value="highpass">高通</option><option value="bandpass">带通</option><option value="transimpedance">跨阻</option><option value="impedance">恒定输入阻抗</option><option value="output_impedance">恒定输出阻抗</option></select></label>
+              <label>截止或中心频率 Hz<input id="frequency" type="number" value="1000" min="0.001"></label>
+              <label>增益或阻抗值<input id="gain" type="number" value="1" min="0.000001" step="any"></label>
+              <label>起始频率 Hz<input id="f-min" type="number" value="10" min="0.001"></label>
+              <label>结束频率 Hz<input id="f-max" type="number" value="100000" min="0.001"></label>
+            </div>
+          </div>
+          <div id="dc-derived-behavior" class="dc-derived-behavior" hidden></div>
+          <details id="signal-definition-details" class="advanced-behavior">
+            <summary>展开激励波形与采样设置</summary>
+          <div id="signal-definition-fields" class="field-stack">
+            <div class="subsection-head"><h3>端口激励</h3></div>
+            <div class="form-grid">
+              <label>波形<select id="waveform-kind"><option value="sine">正弦</option><option value="pulse">脉冲 / PWM</option><option value="periodic_samples">周期采样</option></select></label>
+              <label>编辑端口<select id="signal-port"></select></label>
+            </div>
+            <div id="sine-fields" class="signal-fields form-grid">
+              <label>频率 Hz<input id="signal-frequency" type="number" min="0.001" value="1000000"></label><label>幅值 V<input id="signal-amplitude" type="number" step="any" value="1"></label><label>偏置 V<input id="signal-offset" type="number" step="any" value="0"></label><label>相位 deg<input id="signal-phase" type="number" step="any" value="0"></label>
+            </div>
+            <div id="pulse-fields" class="signal-fields form-grid" hidden>
+              <label>频率 Hz<input id="pulse-frequency" type="number" min="0.001" value="1000000"></label><label>占空比 %<input id="pulse-duty" type="number" min="0.1" max="99.9" value="50"></label><label>低电平 V<input id="pulse-low" type="number" step="any" value="0"></label><label>高电平 V<input id="pulse-high" type="number" step="any" value="3.3"></label><label>上升时间 s<input id="pulse-rise" type="number" min="0" step="any" value="2e-9"></label><label>下降时间 s<input id="pulse-fall" type="number" min="0" step="any" value="2e-9"></label>
+            </div>
+            <div id="sample-fields" class="signal-fields" hidden>
+              <label>周期 s<input id="sample-period" type="number" min="1e-15" step="any" value="1e-6"></label>
+              <label>一个周期的采样值 V，逗号分隔<input id="sample-values" value="0, 1, 0, -1, 0"></label>
+            </div>
+            <svg id="waveform-preview" class="waveform-preview" viewBox="0 0 520 180" role="img" aria-label="输入信号波形预览"></svg>
+            <div id="waveform-summary" class="waveform-summary"></div>
+          </div>
+          </details>
+        </section>
+
+        <section data-wizard-step="3" hidden class="editor-step">
+          <div class="step-heading"><span>步骤 4 / 5</span><h2>限定可构造的电路空间</h2><p>基础配置先限定候选图；真实元件、SPICE 模型和迭代预算放入可折叠的高级设置。</p></div>
+          <div class="subsection-head"><h3>本地 KiCad 元件库</h3><span id="component-library-status" class="section-caption">正在检查本地元件库</span></div>
+          <label>自定义库根目录，可选<input id="component-library-root" placeholder="例如 D:\KiCad\10.0\share\kicad"></label>
+          <div class="component-library-actions"><button id="reindex-components" type="button">重建索引</button><input id="component-search" placeholder="搜索 LM358、MOSFET、SOIC-8"><select id="component-kind"><option value="symbol">符号</option><option value="footprint">封装</option><option value="model">SPICE 模型</option><option value="">全部</option></select></div>
+          <div id="component-search-results" class="component-search-results"></div>
+          <details class="advanced-behavior model-binding-details">
+            <summary>展开 SPICE 模型绑定</summary>
+          <div class="model-binding-editor">
+            <div class="subsection-head"><h3>SPICE 模型绑定</h3></div>
+            <label>绑定到电路元件<input id="model-component" value="R1" placeholder="例如 R1、C1、Eop"></label>
+            <div id="model-selection-status" class="field-note">先搜索并选择一个 SPICE 模型</div>
+            <div id="model-pin-mapping" class="model-pin-mapping"></div>
+            <button id="add-model-binding" class="quiet-action" type="button" disabled>加入模型绑定</button>
+            <div id="model-bindings-list" class="model-bindings-list"></div>
+          </div>
+          </details>
+          <div class="subsection-head"><h3>允许使用</h3></div>
+          <div class="checks">
+            <label><input type="checkbox" name="element" value="R" checked> 电阻 R</label><label><input type="checkbox" name="element" value="C" checked> 电容 C</label><label><input type="checkbox" name="element" value="L"> 电感 L</label><label><input type="checkbox" name="element" value="opamp" checked> 理想运放</label><label><input type="checkbox" name="element" value="ideal_switch"> 理想开关</label><label><input type="checkbox" name="element" value="ideal_transformer"> 理想变压器</label><label><input type="checkbox" name="element" value="ideal_diode"> 理想二极管</label>
+          </div>
+          <label class="required-elements">必须使用<span><label><input type="checkbox" name="required-element" value="R"> R</label><label><input type="checkbox" name="required-element" value="C"> C</label><label><input type="checkbox" name="required-element" value="L"> L</label><label><input type="checkbox" name="required-element" value="opamp"> 运放</label></span></label>
+          <div class="form-grid"><label>最大元件数<input id="max-components" type="number" value="5" min="1" max="12"></label><label>候选数<input id="top-k" type="number" value="3" min="1" max="8"></label><label>优化迭代<input id="max-iterations" type="number" value="45" min="5" max="500"></label></div>
+          <button id="suggest-topologies" class="outline-command" type="button">查询已存在拓扑</button>
+          <div id="topology-suggestions" class="topology-suggestions"></div>
+        </section>
+
+        <section data-wizard-step="4" hidden class="editor-step review-step">
+          <div class="step-heading"><span>步骤 5 / 5</span><h2>检查规范并执行</h2><p>进入本步骤会先检查 PBDL。通过后开始合成；阻止原因会定位到对应阶段和能力缺口。</p></div>
+          <div id="design-summary" class="design-summary"></div>
+          <div class="submit-row"><div class="submit-actions"><button id="compile-button" class="outline-command" type="button">检查并编译 PBDL</button><button id="run-button" class="run-button" type="button">开始合成</button></div><span>先显示规范化 PBDL、统一 IR、执行计划和能力缺口，再允许提交执行。</span><p id="execution-progress-editor" class="execution-progress execution-progress-editor" hidden></p></div>
+          <section id="compile-preview" class="compile-preview" hidden><header><div><span class="eyebrow">COMPILE GATE</span><h3 id="compile-title">尚未编译</h3></div><span id="compile-status" class="compile-status">等待检查</span></header><div id="compile-summary" class="compile-summary"></div><details><summary>查看统一 IR</summary><pre id="compile-ir-preview"></pre></details></section>
+          <details class="pbdl-details"><summary>直接编辑完整 PBDL JSON</summary><textarea id="json-editor" spellcheck="false"></textarea></details>
+          <details class="pbdl-details"><summary>规划并执行多阶段 PBDL</summary><textarea id="pbdl-editor" spellcheck="false" placeholder="粘贴端口描述语言 JSON"></textarea><label class="execute-switch"><input id="pbdl-execute" type="checkbox" checked> 执行可支持的阶段</label><button id="run-pbdl-button" class="outline-command" type="button">规划并执行 PBDL</button></details>
+        </section>
+
+        <div id="wizard-error" class="wizard-error" role="alert"></div>
+        <div class="wizard-actions"><button id="wizard-back" type="button" disabled>上一步</button><button id="wizard-next" type="button">下一步</button></div>
+      </section>
+
+      <section class="results-panel">
+        <section id="error-panel" class="error-panel" hidden>
+          <div class="error-head"><span class="error-symbol">!</span><div><span id="error-phase" class="eyebrow">ERROR</span><h2 id="error-title">执行失败</h2></div></div>
+          <dl class="error-details"><div><dt>错误代码</dt><dd id="error-code">-</dd></div><div><dt>状态</dt><dd id="error-retry">不可重试</dd></div></dl>
+          <p id="error-message" class="error-message"></p>
+          <p id="error-detail" class="error-detail"></p>
+          <div class="error-suggestion"><b>处理建议</b><span id="error-suggestion-text"></span></div>
+        </section>
+        <div id="empty-state" class="execution-surface">
+          <span class="eyebrow">BACKEND CONTRACT</span>
+          <h2>执行路线与能力边界</h2>
+          <p>工作台不会直接凭文字生成网表。它会先编译规格，再提出候选、优化参数、运行物理模型、裁决约束，最后导出原理图。</p>
+          <ol id="execution-plan" class="execution-plan"><li>正在读取注册能力</li></ol>
+          <div class="limit-box"><b>当前边界</b><ul id="execution-limits"><li>正在读取后端限制</li></ul></div>
+        </div>
+        <div id="results" hidden>
+          <header class="result-banner"><div><span class="eyebrow">CANDIDATE EVIDENCE</span><h2>候选与验证结果</h2><p id="result-conclusion" class="result-conclusion"></p><p id="execution-progress" class="execution-progress" hidden></p></div><div class="result-banner-actions"><div id="verification-summary" class="verification-summary"></div><button id="edit-spec-button" class="quiet-action" type="button">继续编辑</button><button id="compile-result-button" class="quiet-action" type="button">重新检查</button></div></header>
+          <nav id="result-tabs" class="result-tabs" role="tablist" aria-label="结果内容">
+            <button id="result-tab-overview" type="button" role="tab" aria-selected="true" aria-controls="result-panel-overview" tabindex="0" data-result-tab="overview">目标与约束</button>
+            <button id="result-tab-curves" type="button" role="tab" aria-selected="false" aria-controls="result-panel-curves" tabindex="-1" data-result-tab="curves">曲线</button>
+            <button id="result-tab-schematic" type="button" role="tab" aria-selected="false" aria-controls="result-panel-schematic" tabindex="-1" data-result-tab="schematic">原理图</button>
+            <button id="result-tab-parameters" type="button" role="tab" aria-selected="false" aria-controls="result-panel-parameters" tabindex="-1" data-result-tab="parameters">参数与元件</button>
+            <button id="result-tab-evidence" type="button" role="tab" aria-selected="false" aria-controls="result-panel-evidence" tabindex="-1" data-result-tab="evidence">证据链</button>
+            <button id="result-tab-artifacts" type="button" role="tab" aria-selected="false" aria-controls="result-panel-artifacts" tabindex="-1" data-result-tab="artifacts">工程产物</button>
+          </nav>
+          <section id="result-panel-overview" class="result-tab-panel" role="tabpanel" aria-labelledby="result-tab-overview" data-result-panel="overview">
+            <div class="candidate-strip" id="candidate-strip"></div>
+          </section>
+          <section id="result-panel-curves" class="result-tab-panel" role="tabpanel" aria-labelledby="result-tab-curves" data-result-panel="curves" hidden>
+            <div id="compare-controls" class="compare-controls" aria-label="候选曲线比较"></div>
+            <section class="plots"><div class="plot-block"><h2>幅频响应</h2><svg id="magnitude-chart" role="img" aria-label="幅频响应曲线"></svg></div><div class="plot-block"><h2>相频响应</h2><svg id="phase-chart" role="img" aria-label="相频响应曲线"></svg></div></section>
+          </section>
+          <section id="result-panel-schematic" class="result-tab-panel" role="tabpanel" aria-labelledby="result-tab-schematic" data-result-panel="schematic" hidden>
+            <section class="schematic-panel"><div class="result-head"><div><h2 id="candidate-title"></h2><p id="candidate-description"></p></div><div id="metric-grid"></div></div><img id="schematic-image" alt="候选电路原理图"></section>
+          </section>
+          <section id="result-panel-parameters" class="result-tab-panel" role="tabpanel" aria-labelledby="result-tab-parameters" data-result-panel="parameters" hidden>
+            <section class="schematic-panel"><h2>候选参数与元件</h2><pre id="parameters"></pre></section>
+          </section>
+          <section id="result-panel-evidence" class="result-tab-panel" role="tabpanel" aria-labelledby="result-tab-evidence" data-result-panel="evidence" hidden>
+            <section id="candidate-evidence" class="candidate-evidence"></section>
+          </section>
+          <section id="result-panel-artifacts" class="result-tab-panel" role="tabpanel" aria-labelledby="result-tab-artifacts" data-result-panel="artifacts" hidden>
+            <section class="schematic-panel"><h2>可导出的工程产物</h2><div class="artifact-row"><a id="kicad-link" class="button-link" download>KiCad 原理图</a><a id="spice-link" class="button-link" download>SPICE 网表</a><a id="report-link" class="button-link" target="_blank">JSON 报告</a></div></section>
+          </section>
+        </div>
+        <div id="pbdl-results" hidden></div>
+      </section>
+    </main>
+    <div id="status-announcer" class="visually-hidden" role="status" aria-live="polite"></div>
+    <div id="error-announcer" class="visually-hidden" role="alert" aria-live="assertive"></div>
+    <script type="module" src="/app.js?v=workbench-11"></script>
+  </body>
+</html>

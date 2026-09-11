@@ -1,0 +1,105 @@
+{
+  "name": "ac_sensor_filter_match_10khz",
+  "description": "传感器接口：10 kHz 低通加 1 kohm 输出阻抗",
+  "ports": [
+    {
+      "name": "input",
+      "role": "input",
+      "terminals": [
+        {
+          "name": "in",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    },
+    {
+      "name": "output",
+      "role": "output",
+      "terminals": [
+        {
+          "name": "out",
+          "quantity": "voltage"
+        },
+        {
+          "name": "0",
+          "quantity": "ground"
+        }
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "voltage_transfer",
+      "source_port": "input",
+      "output_port": "output",
+      "frequency_hz": [
+        1.0,
+        1000000.0,
+        64
+      ]
+    },
+    {
+      "kind": "output_impedance",
+      "port": "output",
+      "frequency_hz": [
+        1.0,
+        1000000.0,
+        64
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "filter",
+      "filter_kind": "lowpass",
+      "cutoff_hz": 10000.0,
+      "order": 1,
+      "tolerance": {
+        "absolute": 1.0
+      }
+    },
+    {
+      "target_kind": "impedance",
+      "ohms": 1000.0,
+      "tolerance": {
+        "relative": 0.1
+      }
+    }
+  ],
+  "constraints": {
+    "element_types": [
+      "R",
+      "C",
+      "opamp"
+    ],
+    "parameter_ranges": {
+      "R": [
+        10.0,
+        10000000.0
+      ],
+      "C": [
+        1e-12,
+        0.001
+      ],
+      "L": [
+        1e-09,
+        1.0
+      ]
+    },
+    "max_component_count": 12
+  },
+  "operating_point": {
+    "supply_voltage_v": 5.0,
+    "temperature_c": 25.0
+  },
+  "optimization": {
+    "points": 64,
+    "max_iterations": 10,
+    "top_k": 1,
+    "seed": 31
+  }
+}

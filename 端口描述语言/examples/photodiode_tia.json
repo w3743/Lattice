@@ -1,0 +1,79 @@
+{
+  "name": "photodiode_tia",
+  "description": "光电二极管跨阻放大器：0.5mA/V灵敏度，100kHz带宽，5V单电源",
+  "ports": [
+    {
+      "name": "current_input",
+      "description": "光电二极管输出电流",
+      "terminals": [
+        {"name": "pd_anode", "quantity": "current"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "voltage_output",
+      "description": "放大器输出电压",
+      "terminals": [
+        {"name": "vout", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "power",
+      "description": "5V单电源",
+      "terminals": [
+        {"name": "vcc", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "voltage_transfer",
+      "source_port": "current_input",
+      "output_port": "voltage_output",
+      "frequency_hz": [10.0, 10000000.0, 200],
+      "description": "电流输入→电压输出的频域传输"
+    },
+    {
+      "kind": "dc_transfer",
+      "source_port": "current_input",
+      "output_port": "voltage_output",
+      "description": "直流偏置点：无光时输出为 Vcc/2=2.5V"
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "amplifier",
+      "gain_db": 60.0,
+      "bandwidth_hz": [10.0, 100000.0],
+      "input_impedance_ohm": 0.0,
+      "output_impedance_ohm": 50.0,
+      "weight": 1.0,
+      "tolerance": {"relative": 0.1},
+      "description": "跨阻增益V/A→dB基准转换：1kΩ跨阻对应60dB(电压基准)"
+    },
+    {
+      "target_kind": "dc",
+      "output_voltage_v": 2.5,
+      "weight": 0.3,
+      "description": "无光照时输出偏置在Vcc/2"
+    }
+  ],
+  "constraints": {
+    "element_types": ["R", "C", "opamp"],
+    "parameter_ranges": {
+      "R": [100.0, 10000000.0],
+      "C": [1e-12, 1e-4]
+    },
+    "max_component_count": 8,
+    "max_power_mw": 50.0,
+    "noise_floor_dbm": -90.0,
+    "preferred_values": "E24"
+  },
+  "operating_point": {
+    "supply_voltage_v": 5.0,
+    "supply_bipolar": false,
+    "temperature_c": 25.0
+  }
+}

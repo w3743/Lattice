@@ -1,0 +1,62 @@
+{
+  "name": "amplifier_20dB",
+  "description": "20dB 放大器，带宽 10Hz-100kHz，5V 单电源",
+  "ports": [
+    {
+      "name": "input",
+      "terminals": [
+        {"name": "in", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "output",
+      "terminals": [
+        {"name": "out", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "power",
+      "description": "5V 单电源",
+      "terminals": [
+        {"name": "vcc", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "voltage_transfer",
+      "source_port": "input",
+      "output_port": "output",
+      "frequency_hz": [1.0, 1000000.0, 200]
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "amplifier",
+      "gain_db": 20.0,
+      "bandwidth_hz": [10.0, 100000.0],
+      "input_impedance_ohm": 10000.0,
+      "weight": 1.0,
+      "tolerance": {"relative": 0.05, "absolute": 1.0}
+    }
+  ],
+  "constraints": {
+    "element_types": ["R", "C", "opamp"],
+    "parameter_ranges": {
+      "R": [100.0, 10000000.0],
+      "C": [1e-12, 1e-4]
+    },
+    "max_component_count": 12,
+    "max_power_mw": 100.0,
+    "noise_floor_dbm": -80.0,
+    "preferred_values": "E12"
+  },
+  "operating_point": {
+    "supply_voltage_v": 5.0,
+    "supply_bipolar": false,
+    "temperature_c": 25.0
+  }
+}

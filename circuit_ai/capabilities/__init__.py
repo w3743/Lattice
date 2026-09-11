@@ -1,0 +1,50 @@
+"""Public capability registry API."""
+
+from .builtins import build_default_registry, register_builtin_capabilities
+from .contracts import (
+    CapabilityGap,
+    CapabilityPlanError,
+    CapabilityPluginError,
+    CapabilityRegistration,
+    CapabilityRegistrationError,
+    CapabilityRejection,
+    CapabilityRequest,
+    CapabilityResolution,
+    CapabilityResolutionError,
+    CapabilityRole,
+    CapabilityTarget,
+    ConstraintValidator,
+    Exporter,
+    MetricProvider,
+    Optimizer,
+    SchematicRenderer,
+    Simulator,
+    VerificationBackend,
+)
+from .registry import CAPABILITY_ENTRY_POINT_GROUP, CapabilityRegistry, CapabilityResolver
+
+__all__ = [
+    "CAPABILITY_ENTRY_POINT_GROUP",
+    "CapabilityGap",
+    "CapabilityPlanError",
+    "CapabilityPluginError",
+    "CapabilityRegistration",
+    "CapabilityRegistrationError",
+    "CapabilityRegistry",
+    "CapabilityRejection",
+    "CapabilityRequest",
+    "CapabilityResolution",
+    "CapabilityResolutionError",
+    "CapabilityResolver",
+    "CapabilityRole",
+    "CapabilityTarget",
+    "ConstraintValidator",
+    "Exporter",
+    "MetricProvider",
+    "Optimizer",
+    "SchematicRenderer",
+    "Simulator",
+    "VerificationBackend",
+    "build_default_registry",
+    "register_builtin_capabilities",
+]

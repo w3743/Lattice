@@ -1,0 +1,1635 @@
+{
+  "schema": "circuit_ai.classic_requirement_suite",
+  "schema_version": 1,
+  "purpose": "Classical circuit requirements expressed as canonical PBDL regression cases.",
+  "counts": {
+    "classic": 101,
+    "baseline": 10,
+    "total": 111,
+    "by_category": {
+      "adc_frontend": 1,
+      "amplifier": 11,
+      "bias": 1,
+      "comparator": 1,
+      "dc_power": 16,
+      "existing_baseline": 10,
+      "filter": 29,
+      "gate_driver": 1,
+      "input_impedance": 6,
+      "isolated_power": 5,
+      "linear_regulator": 1,
+      "mixer": 1,
+      "motor_driver": 1,
+      "multi_port": 2,
+      "multi_port_power": 1,
+      "multi_stage": 3,
+      "noise": 1,
+      "oscillator": 3,
+      "output_impedance": 4,
+      "rf_matching": 3,
+      "schmitt_trigger": 1,
+      "switching_power": 1,
+      "thermal": 1,
+      "timer": 1,
+      "transient": 1,
+      "transimpedance": 4,
+      "voltage_reference": 1
+    },
+    "by_domain": {
+      "dc": 26,
+      "frequency_domain": 62,
+      "mixed": 10,
+      "noise": 1,
+      "time_domain": 12
+    },
+    "by_expected_planning": {
+      "mixed": 1,
+      "supported": 71,
+      "unsupported": 39
+    }
+  },
+  "cases": [
+    {
+      "id": "5v_to_10v_dc_boost",
+      "title": "现有 PBDL 基线：5v_to_10v_dc_boost",
+      "path": "pbdl/baseline/5v_to_10v_dc_boost.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "ac_active_highpass_20khz",
+      "title": "音频分频前端：20 kHz 二阶主动高通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_active_highpass_20khz.json"
+    },
+    {
+      "id": "ac_active_highpass_5khz",
+      "title": "信号调理：5 kHz 二阶高通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_active_highpass_5khz.json"
+    },
+    {
+      "id": "ac_active_lowpass_10khz",
+      "title": "主动抗混叠：10 kHz 二阶 Butterworth 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_active_lowpass_10khz.json"
+    },
+    {
+      "id": "ac_active_lowpass_1khz",
+      "title": "低频测量抗噪：1 kHz 二阶主动低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_active_lowpass_1khz.json"
+    },
+    {
+      "id": "ac_active_lowpass_20khz",
+      "title": "音频 ADC 前端：20 kHz 二阶低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_active_lowpass_20khz.json"
+    },
+    {
+      "id": "ac_allpass_phase_10khz",
+      "title": "通信相位补偿：10 kHz 一阶全通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_allpass_phase_10khz.json"
+    },
+    {
+      "id": "ac_allpass_phase_1khz",
+      "title": "相位均衡：1 kHz 一阶全通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_allpass_phase_1khz.json"
+    },
+    {
+      "id": "ac_amplifier_input_output_impedance",
+      "title": "放大器接口：20 dB 电压增益加输入输出阻抗",
+      "category": "multi_stage",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_amplifier_input_output_impedance.json"
+    },
+    {
+      "id": "ac_audio_highpass_20hz",
+      "title": "音频耦合：20 Hz 一阶高通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_audio_highpass_20hz.json"
+    },
+    {
+      "id": "ac_audio_input_600ohm",
+      "title": "传统音频接口：600 ohm 输入阻抗",
+      "category": "input_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_audio_input_600ohm.json"
+    },
+    {
+      "id": "ac_audio_preamp_14db",
+      "title": "音频前置放大：14 dB，20 Hz 至 20 kHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_audio_preamp_14db.json"
+    },
+    {
+      "id": "ac_audio_preamp_20db",
+      "title": "音频前置放大：20 dB、20 Hz 至 20 kHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_audio_preamp_20db.json"
+    },
+    {
+      "id": "ac_bandpass_100hz_q2",
+      "title": "机械振动检测：100 Hz、Q=2 带通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_bandpass_100hz_q2.json"
+    },
+    {
+      "id": "ac_bandpass_100khz_q10",
+      "title": "超声前端选择：100 kHz、Q=10 带通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_bandpass_100khz_q10.json"
+    },
+    {
+      "id": "ac_bandpass_10khz_q4",
+      "title": "中频选择：中心 10 kHz、Q=4 带通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_bandpass_10khz_q4.json"
+    },
+    {
+      "id": "ac_bandpass_1khz_q5",
+      "title": "窄带音频检测：中心 1 kHz、Q=5 带通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_bandpass_1khz_q5.json"
+    },
+    {
+      "id": "ac_bessel_lowpass_100khz",
+      "title": "高速采样保波形：100 kHz 二阶 Bessel 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_bessel_lowpass_100khz.json"
+    },
+    {
+      "id": "ac_bessel_lowpass_5khz",
+      "title": "脉冲保真前端：5 kHz 二阶 Bessel 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_bessel_lowpass_5khz.json"
+    },
+    {
+      "id": "ac_chebyshev_lowpass_100khz",
+      "title": "高选择性采样滤波：100 kHz 二阶 Chebyshev 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_chebyshev_lowpass_100khz.json"
+    },
+    {
+      "id": "ac_chebyshev_lowpass_10khz",
+      "title": "选择性滤波：10 kHz 二阶 Chebyshev 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_chebyshev_lowpass_10khz.json"
+    },
+    {
+      "id": "ac_filter_gain_12db",
+      "title": "有源滤波增益：12 dB、10 kHz 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_filter_gain_12db.json"
+    },
+    {
+      "id": "ac_four_port_auxiliary_network",
+      "title": "带两个辅助端口的四端口模拟网络",
+      "category": "multi_port",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner_boundary",
+      "expected_error_code": "capability_gap",
+      "known_boundary": "execution_adapter_is_two_port",
+      "path": "pbdl/classic/ac_four_port_auxiliary_network.json"
+    },
+    {
+      "id": "ac_highpass_1khz",
+      "title": "交流耦合传感器：1 kHz 一阶高通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_highpass_1khz.json"
+    },
+    {
+      "id": "ac_if_bandpass_455khz",
+      "title": "AM 中频：中心 455 kHz、10 kHz 带宽带通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_if_bandpass_455khz.json"
+    },
+    {
+      "id": "ac_input_match_10ohm",
+      "title": "低阻传感器输入：10 ohm 输入阻抗",
+      "category": "input_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_input_match_10ohm.json"
+    },
+    {
+      "id": "ac_input_match_1kohm",
+      "title": "控制接口输入：1 kohm 输入阻抗",
+      "category": "input_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_input_match_1kohm.json"
+    },
+    {
+      "id": "ac_input_match_1mohm",
+      "title": "高阻测量输入：1 Mohm 输入阻抗",
+      "category": "input_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_input_match_1mohm.json"
+    },
+    {
+      "id": "ac_input_match_50ohm",
+      "title": "射频源接口：50 ohm 输入阻抗",
+      "category": "input_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_input_match_50ohm.json"
+    },
+    {
+      "id": "ac_input_match_75ohm",
+      "title": "视频同轴接口：75 ohm 输入阻抗",
+      "category": "input_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_input_match_75ohm.json"
+    },
+    {
+      "id": "ac_inverting_20db",
+      "title": "反相信号链：20 dB、100 Hz 至 1 MHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_inverting_20db.json"
+    },
+    {
+      "id": "ac_inverting_40db",
+      "title": "反相高增益：40 dB、10 Hz 至 100 kHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_inverting_40db.json"
+    },
+    {
+      "id": "ac_inverting_6db",
+      "title": "反相缓冲级：6 dB，100 Hz 至 1 MHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_inverting_6db.json"
+    },
+    {
+      "id": "ac_noninverting_20db",
+      "title": "通用非反相放大器：20 dB，10 Hz 至 100 kHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_noninverting_20db.json"
+    },
+    {
+      "id": "ac_noninverting_40db",
+      "title": "高增益传感器：40 dB、1 Hz 至 10 kHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_noninverting_40db.json"
+    },
+    {
+      "id": "ac_noninverting_6db",
+      "title": "缓冲放大：6 dB、10 Hz 至 100 kHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_noninverting_6db.json"
+    },
+    {
+      "id": "ac_notch_1khz",
+      "title": "开关纹波抑制：1 kHz 二阶带阻",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_notch_1khz.json"
+    },
+    {
+      "id": "ac_notch_50hz",
+      "title": "工频抑制：50 Hz 二阶带阻",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_notch_50hz.json"
+    },
+    {
+      "id": "ac_notch_60hz",
+      "title": "电网干扰抑制：60 Hz 二阶带阻",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_notch_60hz.json"
+    },
+    {
+      "id": "ac_output_buffer",
+      "title": "电压跟随器：0 dB、1 Hz 至 100 kHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_output_buffer.json"
+    },
+    {
+      "id": "ac_output_driver_10ohm",
+      "title": "功率缓冲输出：10 ohm 输出阻抗",
+      "category": "output_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_output_driver_10ohm.json"
+    },
+    {
+      "id": "ac_output_driver_50ohm",
+      "title": "测试仪输出：50 ohm 输出阻抗",
+      "category": "output_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_output_driver_50ohm.json"
+    },
+    {
+      "id": "ac_output_driver_600ohm",
+      "title": "音频驱动输出：600 ohm 输出阻抗",
+      "category": "output_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_output_driver_600ohm.json"
+    },
+    {
+      "id": "ac_output_driver_75ohm",
+      "title": "视频驱动输出：75 ohm 输出阻抗",
+      "category": "output_impedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "receiver_filter"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_output_driver_75ohm.json"
+    },
+    {
+      "id": "ac_rc_highpass_100hz",
+      "title": "低频漂移隔离：100 Hz RC 高通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_rc_highpass_100hz.json"
+    },
+    {
+      "id": "ac_rc_highpass_100khz",
+      "title": "高速交流耦合：100 kHz RC 高通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_rc_highpass_100khz.json"
+    },
+    {
+      "id": "ac_rc_lowpass_100hz",
+      "title": "传感器慢变信号：100 Hz 一阶低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_rc_lowpass_100hz.json"
+    },
+    {
+      "id": "ac_rc_lowpass_100khz",
+      "title": "采样保持前端：100 kHz RC 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_rc_lowpass_100khz.json"
+    },
+    {
+      "id": "ac_rc_lowpass_10hz",
+      "title": "慢速传感器抗噪：10 Hz RC 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_rc_lowpass_10hz.json"
+    },
+    {
+      "id": "ac_rc_lowpass_1khz",
+      "title": "通用采样前端：1 kHz 一阶低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "smoke",
+      "validation_scope": "execution",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_rc_lowpass_1khz.json"
+    },
+    {
+      "id": "ac_rc_lowpass_1mhz",
+      "title": "高速接口抗混叠：1 MHz RC 低通",
+      "category": "filter",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "analog_filters"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_rc_lowpass_1mhz.json"
+    },
+    {
+      "id": "ac_sensor_filter_match_10khz",
+      "title": "传感器接口：10 kHz 低通加 1 kohm 输出阻抗",
+      "category": "multi_stage",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "smoke",
+      "validation_scope": "execution",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_sensor_filter_match_10khz.json"
+    },
+    {
+      "id": "ac_sensor_gain_40db",
+      "title": "低电平传感器放大：40 dB，1 Hz 至 10 kHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_sensor_gain_40db.json"
+    },
+    {
+      "id": "ac_three_port_supply_adapter",
+      "title": "带独立供电端口的三端口传感器接口",
+      "category": "multi_port",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner_boundary",
+      "expected_error_code": "capability_gap",
+      "known_boundary": "execution_adapter_is_two_port",
+      "path": "pbdl/classic/ac_three_port_supply_adapter.json"
+    },
+    {
+      "id": "ac_tia_100kohm",
+      "title": "光电二极管跨阻放大：100 kohm，10 Hz 至 100 kHz",
+      "category": "transimpedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_tia_100kohm.json"
+    },
+    {
+      "id": "ac_tia_10kohm",
+      "title": "光电流跨阻：10 kohm、10 Hz 至 100 kHz",
+      "category": "transimpedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_tia_10kohm.json"
+    },
+    {
+      "id": "ac_tia_10mohm",
+      "title": "弱电流检测：10 Mohm、1 Hz 至 1 kHz",
+      "category": "transimpedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_tia_10mohm.json"
+    },
+    {
+      "id": "ac_tia_1mohm",
+      "title": "弱光电流读出：1 Mohm，1 Hz 至 10 kHz",
+      "category": "transimpedance",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/ac_tia_1mohm.json"
+    },
+    {
+      "id": "ac_tia_output_match",
+      "title": "光电接收前端：跨阻放大加 50 ohm 输出匹配",
+      "category": "multi_stage",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "mixed",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_tia_output_match.json"
+    },
+    {
+      "id": "ac_wideband_1mhz",
+      "title": "宽带电压放大：10 dB、1 kHz 至 1 MHz",
+      "category": "amplifier",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/ac_wideband_1mhz.json"
+    },
+    {
+      "id": "amplifier_20db",
+      "title": "现有 PBDL 基线：amplifier_20db",
+      "path": "pbdl/baseline/amplifier_20db.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "bandgap_2v5",
+      "title": "现有 PBDL 基线：bandgap_2v5",
+      "path": "pbdl/baseline/bandgap_2v5.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "bandpass_10khz",
+      "title": "现有 PBDL 基线：bandpass_10khz",
+      "path": "pbdl/baseline/bandpass_10khz.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "dc_boost_12v_to_24v",
+      "title": "工业控制升压：12 V 到 24 V，500 mA",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_boost_12v_to_24v.json"
+    },
+    {
+      "id": "dc_boost_1v8_to_5v",
+      "title": "低压电池升压：1.8 V 到 5 V，200 mA",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_boost_1v8_to_5v.json"
+    },
+    {
+      "id": "dc_boost_24v_to_48v",
+      "title": "工业母线升压：24 V 到 48 V，500 mA",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_boost_24v_to_48v.json"
+    },
+    {
+      "id": "dc_boost_3v3_to_5v",
+      "title": "电池升压：3.3 V 到 5 V，500 mA",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_boost_3v3_to_5v.json"
+    },
+    {
+      "id": "dc_boost_5v_to_12v",
+      "title": "接口电源升压：5 V 到 12 V，300 mA",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "smoke",
+      "validation_scope": "execution",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_boost_5v_to_12v.json"
+    },
+    {
+      "id": "dc_boost_9v_to_24v",
+      "title": "仪器辅助升压：9 V 到 24 V，200 mA",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_boost_9v_to_24v.json"
+    },
+    {
+      "id": "dc_buck_12v_to_3v3",
+      "title": "数字核心降压：12 V 到 3.3 V，2 A",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_buck_12v_to_3v3.json"
+    },
+    {
+      "id": "dc_buck_12v_to_5v",
+      "title": "嵌入式主电源：12 V 到 5 V，3 A",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_buck_12v_to_5v.json"
+    },
+    {
+      "id": "dc_buck_24v_to_5v",
+      "title": "工业降压：24 V 到 5 V，1 A",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_buck_24v_to_5v.json"
+    },
+    {
+      "id": "dc_buck_3v3_to_1v2",
+      "title": "FPGA 核心供电：3.3 V 到 1.2 V，2 A",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_buck_3v3_to_1v2.json"
+    },
+    {
+      "id": "dc_buck_48v_to_12v",
+      "title": "工业母线降压：48 V 到 12 V，2 A",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_buck_48v_to_12v.json"
+    },
+    {
+      "id": "dc_buck_5v_to_1v8",
+      "title": "处理器内核降压：5 V 到 1.8 V，1 A",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_buck_5v_to_1v8.json"
+    },
+    {
+      "id": "dc_flyback_12v_to_5v",
+      "title": "隔离传感器电源：12 V 到 5 V，1 A",
+      "category": "isolated_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies",
+        "flyback_selector"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_flyback_12v_to_5v.json"
+    },
+    {
+      "id": "dc_flyback_24v_to_15v",
+      "title": "隔离栅极驱动电源：24 V 到 15 V，300 mA",
+      "category": "isolated_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies",
+        "flyback_selector"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_flyback_24v_to_15v.json"
+    },
+    {
+      "id": "dc_flyback_24v_to_5v",
+      "title": "隔离控制电源：24 V 到 5 V，500 mA",
+      "category": "isolated_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies",
+        "flyback_selector"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_flyback_24v_to_5v.json"
+    },
+    {
+      "id": "dc_flyback_5v_to_12v",
+      "title": "隔离偏置电源：5 V 到 12 V，1 A",
+      "category": "isolated_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies",
+        "flyback_selector"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "smoke",
+      "validation_scope": "execution",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_flyback_5v_to_12v.json"
+    },
+    {
+      "id": "dc_flyback_5v_to_15v",
+      "title": "隔离模拟电源：5 V 到 15 V，200 mA",
+      "category": "isolated_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies",
+        "flyback_selector"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_flyback_5v_to_15v.json"
+    },
+    {
+      "id": "dc_sepic_12v_to_5v",
+      "title": "输入跨越输出的 SEPIC：12 V 到 5 V，500 mA",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_sepic_12v_to_5v.json"
+    },
+    {
+      "id": "dc_sepic_3v3_to_12v",
+      "title": "电池宽输入升压：3.3 V 到 12 V，100 mA",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_sepic_3v3_to_12v.json"
+    },
+    {
+      "id": "dc_sepic_5v_to_9v",
+      "title": "宽输入电源：5 V 到 9 V，500 mA SEPIC 候选",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_sepic_5v_to_9v.json"
+    },
+    {
+      "id": "dc_sepic_9v_to_12v",
+      "title": "车载保持输出：9 V 到 12 V，300 mA SEPIC 候选",
+      "category": "dc_power",
+      "domain": "dc",
+      "source_groups": [
+        "power_topologies"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null,
+      "path": "pbdl/classic/dc_sepic_9v_to_12v.json"
+    },
+    {
+      "id": "differential_amplifier",
+      "title": "现有 PBDL 基线：differential_amplifier",
+      "path": "pbdl/baseline/differential_amplifier.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "emc_filter_mask",
+      "title": "现有 PBDL 基线：emc_filter_mask",
+      "path": "pbdl/baseline/emc_filter_mask.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "future_555_astable",
+      "title": "555 无稳态振荡器：1 kHz、60% 占空比",
+      "category": "timer",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_555_astable.json"
+    },
+    {
+      "id": "future_adc_sampling_transient",
+      "title": "ADC 采样前端：阶跃建立时间、过冲和采样瞬态",
+      "category": "adc_frontend",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_adc_sampling_transient.json"
+    },
+    {
+      "id": "future_bandgap_reference",
+      "title": "带隙基准：2.5 V、温漂和电源抑制比",
+      "category": "voltage_reference",
+      "domain": "dc",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_bandgap_reference.json"
+    },
+    {
+      "id": "future_comparator_2v5",
+      "title": "比较器：2.5 V 阈值、传播延迟和过驱动要求",
+      "category": "comparator",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_comparator_2v5.json"
+    },
+    {
+      "id": "future_dc_bias_point",
+      "title": "晶体管偏置：直流工作点、静态电流和余量",
+      "category": "bias",
+      "domain": "dc",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_dc_bias_point.json"
+    },
+    {
+      "id": "future_h_bridge_motor",
+      "title": "H 桥电机驱动：24 V、2 A、PWM 和死区",
+      "category": "motor_driver",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_h_bridge_motor.json"
+    },
+    {
+      "id": "future_linear_ldo",
+      "title": "线性稳压器：12 V 到 5 V、1 A、压差与热约束",
+      "category": "linear_regulator",
+      "domain": "dc",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_linear_ldo.json"
+    },
+    {
+      "id": "future_mixer_10mhz",
+      "title": "有源混频器：10 MHz 输入、变频产物和杂散约束",
+      "category": "mixer",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_mixer_10mhz.json"
+    },
+    {
+      "id": "future_multiport_dc_distribution",
+      "title": "四端口直流配电：多路输出、负载分配和交叉调整率",
+      "category": "multi_port_power",
+      "domain": "dc",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_multiport_dc_distribution.json"
+    },
+    {
+      "id": "future_noise_lna",
+      "title": "低噪声放大器：输入参考噪声和噪声增益",
+      "category": "noise",
+      "domain": "noise",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_noise_lna.json"
+    },
+    {
+      "id": "future_periodic_switching_converter",
+      "title": "开关变换器：周期稳态纹波和开关应力",
+      "category": "switching_power",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_periodic_switching_converter.json"
+    },
+    {
+      "id": "future_periodic_wien_bridge",
+      "title": "文氏桥振荡器：1 kHz 周期稳态和启动过程",
+      "category": "oscillator",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_periodic_wien_bridge.json"
+    },
+    {
+      "id": "future_pwm_gate_driver",
+      "title": "PWM 栅极驱动：死区、上升沿和开关瞬态",
+      "category": "gate_driver",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_pwm_gate_driver.json"
+    },
+    {
+      "id": "future_rc_phase_shift_oscillator",
+      "title": "RC 移相振荡器：10 kHz 启振和周期稳态",
+      "category": "oscillator",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_rc_phase_shift_oscillator.json"
+    },
+    {
+      "id": "future_rc_step_response",
+      "title": "RC 阶跃响应：上升时间、稳态误差和初始条件",
+      "category": "transient",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_rc_step_response.json"
+    },
+    {
+      "id": "future_rf_sparameter_100mhz",
+      "title": "RF 匹配网络：100 MHz S 参数和回波损耗",
+      "category": "rf_matching",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_rf_sparameter_100mhz.json"
+    },
+    {
+      "id": "future_rf_sparameter_2ghz",
+      "title": "RF 匹配网络：2 GHz S 参数和带宽",
+      "category": "rf_matching",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_rf_sparameter_2ghz.json"
+    },
+    {
+      "id": "future_rf_sparameter_match",
+      "title": "RF 匹配网络：100 MHz 双端口 S 参数和 50 ohm 匹配",
+      "category": "rf_matching",
+      "domain": "frequency_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_rf_sparameter_match.json"
+    },
+    {
+      "id": "future_schmitt_trigger",
+      "title": "施密特触发器：上升/下降阈值和迟滞",
+      "category": "schmitt_trigger",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_schmitt_trigger.json"
+    },
+    {
+      "id": "future_thermal_power_stage",
+      "title": "功率级热设计：结温、热阻和功耗约束",
+      "category": "thermal",
+      "domain": "dc",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_thermal_power_stage.json"
+    },
+    {
+      "id": "future_wien_bridge_oscillator",
+      "title": "文氏桥振荡器：1 kHz 稳态正弦、幅值稳定",
+      "category": "oscillator",
+      "domain": "time_domain",
+      "source_groups": [
+        "classic_textbook",
+        "ieee_benchmarks"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": "capability_gap",
+      "path": "pbdl/classic/future_wien_bridge_oscillator.json"
+    },
+    {
+      "id": "h_bridge_motor_driver",
+      "title": "现有 PBDL 基线：h_bridge_motor_driver",
+      "path": "pbdl/baseline/h_bridge_motor_driver.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "lowpass_1khz",
+      "title": "现有 PBDL 基线：lowpass_1khz",
+      "path": "pbdl/baseline/lowpass_1khz.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "photodiode_tia",
+      "title": "现有 PBDL 基线：photodiode_tia",
+      "path": "pbdl/baseline/photodiode_tia.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "unsupported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    },
+    {
+      "id": "sensor_interface",
+      "title": "现有 PBDL 基线：sensor_interface",
+      "path": "pbdl/baseline/sensor_interface.json",
+      "category": "existing_baseline",
+      "domain": "mixed",
+      "source_groups": [
+        "repository_baseline"
+      ],
+      "expected_planning": "supported",
+      "execution_tier": "schema",
+      "validation_scope": "planner",
+      "expected_error_code": null
+    }
+  ]
+}

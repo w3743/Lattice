@@ -1,0 +1,32 @@
+{
+  "name": "fifty_ohm_output_impedance",
+  "ports": 2,
+  "analysis": {
+    "kind": "output_impedance",
+    "output_node": "out"
+  },
+  "behavior": {
+    "kind": "constant_output_impedance",
+    "ohms": 50,
+    "frequency_range_hz": [1, 10000000]
+  },
+  "library": {
+    "allowed": ["R"],
+    "parameter_ranges": {
+      "R": [1, 1000]
+    },
+    "unit_costs": {
+      "R": 0.02
+    },
+    "unit_areas_mm2": {
+      "R": 1.2
+    }
+  },
+  "optimization": {
+    "points": 48,
+    "max_components": 1,
+    "max_iterations": 25,
+    "top_k": 1,
+    "seed": 24
+  }
+}

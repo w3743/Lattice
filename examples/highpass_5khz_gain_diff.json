@@ -1,0 +1,30 @@
+{
+  "name": "five_khz_highpass_gain_diff",
+  "ports": 2,
+  "behavior": {
+    "kind": "highpass",
+    "cutoff_hz": 5000,
+    "gain": 4.0,
+    "order": 1,
+    "frequency_range_hz": [50, 500000]
+  },
+  "library": {
+    "allowed": ["R", "C", "opamp"],
+    "parameter_ranges": {
+      "R": [100, 2000000],
+      "C": [1e-11, 1e-5]
+    }
+  },
+  "optimization": {
+    "points": 96,
+    "max_components": 5,
+    "top_k": 2,
+    "max_iterations": 24,
+    "seed": 13,
+    "differentiable": {
+      "enabled": true,
+      "steps": 80,
+      "learning_rate": 0.02
+    }
+  }
+}

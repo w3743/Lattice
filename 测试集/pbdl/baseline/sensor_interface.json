@@ -1,0 +1,59 @@
+{
+  "name": "sensor_interface",
+  "description": "传感器调理电路：低通抗混叠(100kHz) + 6dB放大 + 50Ω输出匹配",
+  "ports": [
+    {
+      "name": "input",
+      "terminals": [
+        {"name": "in", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    },
+    {
+      "name": "output",
+      "terminals": [
+        {"name": "out", "quantity": "voltage"},
+        {"name": "0", "quantity": "ground"}
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "voltage_transfer",
+      "source_port": "input",
+      "output_port": "output",
+      "frequency_hz": [1.0, 10000000.0, 200]
+    },
+    {
+      "kind": "impedance",
+      "port": "output",
+      "frequency_hz": [1.0, 10000000.0, 100]
+    }
+  ],
+  "targets": [
+    {
+      "target_kind": "filter",
+      "filter_kind": "lowpass",
+      "order": 2,
+      "cutoff_hz": 100000.0,
+      "gain_db": 6.0,
+      "response": "butterworth",
+      "weight": 1.0,
+      "tolerance": {"absolute": 1.0}
+    },
+    {
+      "target_kind": "impedance",
+      "ohms": 50.0,
+      "weight": 0.3,
+      "tolerance": {"relative": 0.1}
+    }
+  ],
+  "constraints": {
+    "element_types": ["R", "C", "opamp"],
+    "max_component_count": 10,
+    "preferred_values": "E12"
+  },
+  "operating_point": {
+    "supply_voltage_v": 5.0
+  }
+}

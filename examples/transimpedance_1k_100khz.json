@@ -1,0 +1,40 @@
+{
+  "name": "one_kiloohm_100khz_tia",
+  "ports": 2,
+  "analysis": {
+    "kind": "transimpedance",
+    "source_name": "Iin",
+    "output_node": "out",
+    "input_node": "in"
+  },
+  "behavior": {
+    "kind": "transimpedance",
+    "transimpedance_ohm": 1000,
+    "cutoff_hz": 100000,
+    "frequency_range_hz": [10, 1000000]
+  },
+  "library": {
+    "allowed": ["R", "C", "opamp"],
+    "parameter_ranges": {
+      "R": [100, 10000],
+      "C": [1e-12, 1e-5]
+    },
+    "unit_costs": {
+      "R": 0.02,
+      "C": 0.04,
+      "opamp": 1.5
+    },
+    "unit_areas_mm2": {
+      "R": 1.2,
+      "C": 1.8,
+      "opamp": 12.0
+    }
+  },
+  "optimization": {
+    "points": 80,
+    "max_components": 3,
+    "max_iterations": 45,
+    "top_k": 1,
+    "seed": 19
+  }
+}

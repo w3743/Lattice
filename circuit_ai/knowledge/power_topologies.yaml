@@ -1,0 +1,183 @@
+schema_version: 1
+knowledge_id: circuit-ai-power-blocks-v1
+sources:
+  - project: CircuitGenome
+    license: MIT
+    url: https://github.com/nayang-lab/CircuitGenome
+    reviewed_commit: 64fd17a05438e40e0e969400176d6dc9644228fb
+    influence: functional modules, canonical ports, topology slots, explicit connections
+  - project: AnalogGym
+    license: BSD-3-Clause
+    url: https://github.com/xiayouran/AnalogGym
+    reviewed_commit: 0a9d1390ade361e2b4a2d33181e22367edbb8afc
+    influence: separation of circuit definitions, design variables, testbenches, and metrics
+
+modules:
+  - name: two_terminal_inductor
+    category: energy_storage
+    ports: [a, b]
+    components:
+      - {ref: element, kind: L, nodes: [a, b]}
+
+  - name: two_terminal_capacitor
+    category: energy_storage
+    ports: [a, b]
+    components:
+      - {ref: element, kind: C, nodes: [a, b]}
+
+  - name: pwm_switch
+    category: controlled_transfer
+    ports: [a, b]
+    components:
+      - ref: element
+        kind: ideal_switch
+        nodes: [a, b]
+        attributes: {control: pwm}
+
+  - name: rectifier
+    category: unidirectional_transfer
+    ports: [anode, cathode]
+    components:
+      - {ref: element, kind: ideal_diode, nodes: [anode, cathode]}
+
+  - name: isolated_transformer
+    category: isolation
+    ports: [primary_a, primary_b, secondary_a, secondary_b]
+    components:
+      - ref: element
+        kind: ideal_transformer
+        nodes: [primary_a, primary_b, secondary_a, secondary_b]
+
+  - name: external_resistive_load
+    category: port_termination
+    ports: [positive, negative]
+    components:
+      - ref: element
+        kind: R
+        nodes: [positive, negative]
+        attributes: {role: external_load, derived_from: output_current_a}
+
+productions:
+  - name: grammar_ideal_buck
+    family: dc_buck
+    solver: ideal_buck_averaged
+    rationale: functional blocks compose a non-isolated step-down switching cell
+    applicability: {isolation: forbidden, voltage_relation: step_down}
+    metadata: {conduction_mode: ideal_ccm}
+    slots:
+      - name: controlled_transfer
+        module: pwm_switch
+        bindings: {a: $input, b: sw}
+        references: {element: Q1}
+      - name: freewheel_path
+        module: rectifier
+        bindings: {anode: $input_ref, cathode: sw}
+        references: {element: D1}
+      - name: series_storage
+        module: two_terminal_inductor
+        bindings: {a: sw, b: $output}
+        references: {element: L1}
+      - name: output_filter
+        module: two_terminal_capacitor
+        bindings: {a: $output, b: $input_ref}
+        references: {element: C1}
+      - name: load
+        module: external_resistive_load
+        bindings: {positive: $output, negative: $input_ref}
+        references: {element: Rload}
+
+  - name: ideal_asynchronous_boost
+    family: dc_boost
+    solver: ideal_boost_averaged
+    rationale: functional blocks compose a non-isolated step-up switching cell
+    applicability: {isolation: forbidden, voltage_relation: step_up}
+    metadata: {conduction_mode: ideal_ccm}
+    slots:
+      - name: series_storage
+        module: two_terminal_inductor
+        bindings: {a: $input, b: sw}
+        references: {element: L1}
+      - name: controlled_shunt
+        module: pwm_switch
+        bindings: {a: sw, b: $input_ref}
+        references: {element: Q1}
+      - name: rectifier_path
+        module: rectifier
+        bindings: {anode: sw, cathode: $output}
+        references: {element: D1}
+      - name: output_filter
+        module: two_terminal_capacitor
+        bindings: {a: $output, b: $input_ref}
+        references: {element: C1}
+      - name: load
+        module: external_resistive_load
+        bindings: {positive: $output, negative: $input_ref}
+        references: {element: Rload}
+
+  - name: grammar_ideal_sepic
+    family: dc_sepic
+    solver: ideal_sepic_averaged
+    rationale: functional blocks compose two storage branches through a transfer capacitor
+    applicability: {isolation: forbidden, voltage_relation: step_up}
+    metadata: {conduction_mode: ideal_ccm}
+    slots:
+      - name: input_storage
+        module: two_terminal_inductor
+        bindings: {a: $input, b: sw}
+        references: {element: L1}
+      - name: energy_transfer
+        module: two_terminal_capacitor
+        bindings: {a: sw, b: xfer}
+        references: {element: C1}
+      - name: controlled_shunt
+        module: pwm_switch
+        bindings: {a: sw, b: $input_ref}
+        references: {element: Q1}
+      - name: secondary_storage
+        module: two_terminal_inductor
+        bindings: {a: xfer, b: $input_ref}
+        references: {element: L2}
+      - name: rectifier_path
+        module: rectifier
+        bindings: {anode: xfer, cathode: $output}
+        references: {element: D1}
+      - name: output_filter
+        module: two_terminal_capacitor
+        bindings: {a: $output, b: $input_ref}
+        references: {element: C2}
+      - name: load
+        module: external_resistive_load
+        bindings: {positive: $output, negative: $input_ref}
+        references: {element: Rload}
+
+  - name: ideal_isolated_flyback
+    family: isolated_flyback
+    solver: ideal_flyback_averaged
+    rationale: functional blocks cross the declared isolation boundary only through a transformer
+    applicability: {isolation: required, voltage_relation: any}
+    metadata: {isolated: true, conduction_mode: ideal_ccm}
+    slots:
+      - name: isolated_storage
+        module: isolated_transformer
+        bindings:
+          primary_a: $input
+          primary_b: sw
+          secondary_a: out_sw
+          secondary_b: $output_ref
+        references: {element: T1}
+      - name: controlled_shunt
+        module: pwm_switch
+        bindings: {a: sw, b: $input_ref}
+        references: {element: Q1}
+      - name: secondary_rectifier
+        module: rectifier
+        bindings: {anode: out_sw, cathode: $output}
+        references: {element: D1}
+      - name: output_filter
+        module: two_terminal_capacitor
+        bindings: {a: $output, b: $output_ref}
+        references: {element: C1}
+      - name: load
+        module: external_resistive_load
+        bindings: {positive: $output, negative: $output_ref}
+        references: {element: Rload}
