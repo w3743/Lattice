@@ -11,7 +11,6 @@ import importlib
 import math
 from typing import Any
 
-
 PBDL_MODULE = "\u7aef\u53e3\u63cf\u8ff0\u8bed\u8a00"
 
 
@@ -35,9 +34,51 @@ def canonicalize_pbdl_dict(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def translate_pbdl_dict(data: dict[str, Any]) -> dict[str, Any]:
-    """Translate canonical PBDL into the internal execution IR."""
+    """Translate canonical PBDL into the internal execution IR.
+
+    The PBDL translation layer emits a fixed key set derived from a
+    ``CircuitSpec``, so anything a legacy two-port spec keeps *outside* that set
+    is dropped on the way through -- notably the band-acceptance mask, but also
+    ``gain`` and ``order``.  Those keys are requirement-level information, not
+    noise, so they are re-attached here rather than silently lost.
+    """
+
     module = _pbdl()
-    return module.to_circuit_ai_spec(load_pbdl_dict(data))
+    translated = module.to_circuit_ai_spec(load_pbdl_dict(data))
+    return _reattach_requirement_keys(translated, data)
+
+
+#: Keys a two-port spec may declare that the PBDL round trip does not represent.
+_CARRIED_REQUIREMENT_KEYS = ("filter_mask",)
+
+
+def _reattach_requirement_keys(
+    translated: dict[str, Any],
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    """Carry requirement keys the PBDL translation cannot represent.
+
+    They are re-attached **inside** ``behavior`` because that is the only
+    container the frequency-domain synthesis spec exposes; a top-level key would
+    survive this function and then be dropped by ``SynthesisSpec.from_dict``.
+    A key may be declared at the spec's top level or already inside
+    ``behavior``; the behaviour form is the natural place for a filter
+    requirement and the top-level form is the fallback for specs that do not use
+    ``behavior`` at all.
+    """
+
+    behavior = dict(translated.get("behavior") or {})
+    original = source.get("behavior")
+    original = original if isinstance(original, dict) else {}
+    for key in _CARRIED_REQUIREMENT_KEYS:
+        if key in behavior:
+            continue
+        value = original.get(key, source.get(key))
+        if value is not None:
+            behavior[key] = value
+    if behavior:
+        translated["behavior"] = behavior
+    return translated
 
 
 def _legacy_to_pbdl(data: dict[str, Any]) -> dict[str, Any]:

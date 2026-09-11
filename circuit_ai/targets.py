@@ -14,6 +14,10 @@ class TargetResponse:
     values: np.ndarray
     has_phase: bool = True
     analysis: AnalysisRequest = field(default_factory=AnalysisRequest)
+    #: Optional frequency-band acceptance mask declared by the requirement.
+    #: ``None`` means no mask was stated, so no band verdict is claimed --
+    #: which is different from a mask that was checked and failed.
+    filter_mask: Any = None
 
 
 def frequency_grid(f_min_hz: float, f_max_hz: float, points: int) -> np.ndarray:

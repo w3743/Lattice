@@ -426,12 +426,57 @@ dc_buck  cannot produce a conversion ratio of 0.02 inside its usable duty band (
 
 三件事都不需要改主流程。
 
-### 11.5 下一步（按价值排序）
+### 11.5 AC 频带验收（2026-09-11，第三轮）
+
+前两轮把 DC 电源侧的"需求=范围 + 最坏情况"补齐了，AC 侧仍是空的：AC 设计只用
+`rmse_db` / `max_abs_db` 对照解析目标打分，回答的是"**平均来看形状有多接近**"，
+从不回答"**通带是否守住纹波、阻带是否达到衰减**"——而滤波器需求恰恰是用这两个数写的。
+
+`circuit_ai/frequency_mask.py` 补上这一层：
+
+| 项 | 说明 |
+|---|---|
+| `BandSpec` | 一个频带的增益上下限（dB），必须至少给一个限值 |
+| `FilterMask` | 有序频带集合；**过渡带由相邻频带推导，不重复声明** |
+| `evaluate_filter_mask` | 逐带给出裕量、**决定该带的最坏频率**、越限的是哪个限值、带内实测极值 |
+| `FilterMaskReport` | 汇总判定；`passed` 要求每个带都守住 |
+
+**关键设计选择**：
+
+- **频带判定与形状评分分离**。一个设计可以在平均意义上紧贴目标（`rmse_db < 1 dB`）
+  却仍然击穿阻带底线——测试 `test_band_verdict_is_independent_of_the_shape_score`
+  正是锁定这一点。
+- **空频带默认不通过**。"没有采到样本"不是"满足要求"的证据；除非显式声明
+  `allow_empty: true`。这与 DC 侧 `regulates = None` 而非 `true` 是同一条原则。
+- **过渡带不设要求**，因此也不参与判定；但它被显式列出并给出宽度比。
+
+#### 11.5.1 顺带修掉的一个真实缺陷
+
+自检时发现 `filter_mask` 写进 spec 后**到不了执行层**。追溯发现
+`circuit_ai/pbdl_boundary.py` 的 `translate_pbdl_dict` 把 legacy 两端口 spec 经
+PBDL 往返转换，而 PBDL 翻译器只输出固定键集（`name/ports/behavior/library/optimization`），
+于是 `behavior` 里**不在该键集内的一切都被静默丢弃**——包括新的 `filter_mask`，
+也包括既有的 `gain` 与 `order`。
+
+修法：`translate_pbdl_dict` 在转换后把需求级键**重新挂回 `behavior`**
+（`_reattach_requirement_keys`）。挂回 `behavior` 而非顶层，是因为
+`SynthesisSpec.from_dict` 只暴露 `behavior`，顶层键仍会被它丢掉。
+
+这是一个**静默数据丢失**类缺陷，此前没有任何测试覆盖到它。
+
+#### 11.5.2 实测效果
+
+在 1 kHz 一阶 RC 低通 + 掩模「通带 ≤500 Hz 需 ±1 dB、阻带 ≥30 kHz 需 ≤−20 dB」上，
+CLI 产物 `report.json` 现在带 `filter_mask` 字段，给出 `passed`、`failed_bands`、
+`worst_band`、`worst_margin_db` 与逐带明细。
+
+### 11.6 下一步（按价值排序）
 
 1. **闭环/稳压**（§11.2，最高价值）：完整做法是反馈补偿设计；当前只做到
    "选择在哪个轨上定标"并如实报告剩余偏差。
-2. **多分析类型**：目前 AC 与 DC 电源是两条路径，尚未统一到同一包络/角框架下。
+2. **把频带掩模接入优化目标**：目前掩模只在最终响应上**判定**，没有参与优化
+   （即不指导求解器往满足掩模的方向走）。这是"判定"到"设计"的下一步。
 3. **10 个规划-执行不一致用例**（§10）：需用户拍板补能力还是收窄承诺。
-4. **把正激 production 正式并入 `power_topologies.yaml`**：目前它只存在于测试里，
-   作为"数据化扩展"的活证据；是否正式纳入需用户确认（会改变默认候选集）。
+4. **把正激 production 正式并入 `power_topologies.yaml`**：是否纳入需用户确认
+   （会改变默认候选集）。
 

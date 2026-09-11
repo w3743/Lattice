@@ -28,6 +28,11 @@ from .differentiable import DifferentiableRefinementResult, refine_graph_paramet
 from .discretization import DiscretizationResult, discretize_template_candidates
 from .feasibility import FeasibilityReport, enforce_feasibility
 from .formatting import db20
+from .frequency_mask import (
+    FilterMaskReport,
+    evaluate_filter_mask,
+    mask_from_mapping,
+)
 from .optimizers import DifferentialEvolutionParameterOptimizer, ParameterOptimizer
 from .optimization import (
     FidelityDisagreement,
@@ -99,6 +104,7 @@ class SynthesisResult:
     constraint_report: ConstraintReport | None = None
     fidelity_schedule: FidelityScheduleRun | None = None
     fidelity_comparison: FidelityDisagreement | None = None
+    filter_mask_report: FilterMaskReport | None = None
     discretization: DiscretizationResult | None = None
 
     def netlist(self, title: str | None = None) -> str:
@@ -241,6 +247,9 @@ class SynthesisResult:
             "fidelity_comparison": (
                 self.fidelity_comparison.as_dict() if self.fidelity_comparison is not None else None
             ),
+            "filter_mask": (
+                self.filter_mask_report.as_dict() if self.filter_mask_report is not None else None
+            ),
         }
 
 
@@ -263,6 +272,13 @@ class CircuitSynthesizer:
             spec.optimization.points,
         )
         target = target_from_behavior(spec.behavior, freqs, spec.analysis)
+        # A band mask is part of the requirement, so it travels with the target
+        # and is evaluated on the measured response at the end of the run.  It
+        # may be declared inside `behavior` directly, or re-attached there by the
+        # PBDL boundary when a spec states it at the top level.
+        declared_mask = mask_from_mapping(spec.behavior)
+        if declared_mask is not None:
+            target = replace(target, filter_mask=declared_mask)
         proposer = self.proposer or _default_proposer(spec)
         candidates = proposer.propose(spec)
         if not candidates:
@@ -561,6 +577,9 @@ class CircuitSynthesizer:
                 )
                 simulation_result = simulation_results[0]
         constraint_report = _ac_constraint_report(result, graph, request, simulation_result)
+        # Band acceptance is evaluated on the measured response, not on the
+        # analytic target, so it reports what the circuit actually achieves.
+        filter_mask_report = _ac_filter_mask_report(result.target, simulation_result)
         return replace(
             result,
             simulation_requests=(request,),
@@ -568,6 +587,7 @@ class CircuitSynthesizer:
             simulation_capabilities=(capability,),
             constraint_report=constraint_report,
             fidelity_comparison=fidelity_comparison,
+            filter_mask_report=filter_mask_report,
         )
 
     def _optimize_template(
@@ -958,6 +978,33 @@ def write_results(
             best_bound_netlist or results[0].netlist("best_candidate"),
             encoding="utf-8",
         )
+
+
+def _ac_filter_mask_report(
+    target: TargetResponse,
+    simulation_result: SimulationResult,
+) -> FilterMaskReport | None:
+    """Evaluate the mask the spec declared, if any, on the measured response.
+
+    The mask is read from the target's own definition rather than the request,
+    because it is part of what the requirement asked for.  ``None`` means no
+    mask was declared, so no band verdict is claimed -- distinct from a mask
+    that was checked and failed.
+    """
+
+    mask = getattr(target, "filter_mask", None)
+    if mask is None:
+        return None
+    if simulation_result.status is not SimulationStatus.PASSED:
+        return None
+    if not simulation_result.waveforms:
+        return None
+    waveform = next(iter(simulation_result.waveforms.values()))
+    frequencies = waveform.axes[0].values
+    magnitudes = 20.0 * np.log10(
+        np.maximum(np.abs(np.asarray(waveform.values)), 1e-300)
+    )
+    return evaluate_filter_mask(mask, frequencies, magnitudes)
 
 
 def _ac_constraint_report(
