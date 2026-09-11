@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import importlib
 import math
-from typing import Any, Iterable, Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -188,6 +189,26 @@ class _ConstraintCompiler:
                 weight=float(target.get("weight", 1.0)),
                 source_path=f"targets[{index}]",
                 description="minimize frequency-response magnitude RMSE",
+            )
+        )
+        limit = _target_tolerance_limit(target, target_db)
+        if limit is None:
+            return
+        self._add(
+            ConstraintSpec(
+                constraint_id=f"target.{index}.rmse_db_within_tolerance",
+                metric=metric,
+                operator=ConstraintOperator.MAXIMUM,
+                severity=ConstraintSeverity.HARD,
+                maximum=limit.value,
+                unit="dB",
+                weight=float(target.get("weight", 1.0)),
+                source_path=f"targets[{index}].tolerance",
+                description=(
+                    f"frequency-response magnitude RMSE must stay within {limit.basis}; "
+                    "a stated tolerance is an acceptance limit, and a limit that is "
+                    "never evaluated is not a limit"
+                ),
             )
         )
 
@@ -723,3 +744,64 @@ def _value_and_unit(value: Any, default_unit: Any) -> tuple[float | None, str]:
     if isinstance(value, Mapping):
         return _optional_float(value.get("value")), str(value.get("unit", default_unit))
     return _optional_float(value), str(default_unit)
+
+
+@dataclass(frozen=True)
+class _ToleranceLimit:
+    """A tolerance turned into a dB RMSE limit, with the wording that explains it."""
+
+    value: float
+    basis: str
+
+
+def _positive_finite(value: Any) -> float | None:
+    """A usable positive number, or ``None``.
+
+    ``bool`` is excluded deliberately: ``True`` is an ``int`` in Python and would
+    otherwise read as a 1 dB tolerance.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number <= 0.0:
+        return None
+    return number
+
+
+def _target_tolerance_limit(
+    target: Mapping[str, Any],
+    target_magnitude_db: Sequence[float],
+) -> _ToleranceLimit | None:
+    """Turn a filter target's declared tolerance into a hard RMSE limit.
+
+    Why this exists: the frequency-target compiler used to emit only a soft
+    MINIMIZE, so *any* design satisfied the acceptance gate. A 4th-order
+    Butterworth request answered by a first-order R/C was reported
+    ``verified_feasible`` at 32.9 dB RMSE against a declared 0.5 dB tolerance,
+    because the tolerance was never compiled into anything.
+
+    ``relative`` takes precedence over ``absolute`` when both are given, since a
+    relative band scales with the requirement while an absolute error is a
+    number the user had to guess. The conversion treats the band as symmetric
+    around the target, so the limit is ``20*log10(1 + relative)`` and does not
+    depend on the filter's own gain.
+    """
+
+    tolerance = target.get("tolerance")
+    if not isinstance(tolerance, Mapping):
+        return None
+
+    relative = _positive_finite(tolerance.get("relative"))
+    if relative is not None:
+        if not 0.0 < relative < 1.0 or not target_magnitude_db:
+            return None
+        return _ToleranceLimit(
+            value=float(20.0 * math.log10(1.0 + relative)),
+            basis=f"relative {relative:g} of the target magnitude",
+        )
+
+    absolute = _positive_finite(tolerance.get("absolute"))
+    if absolute is None:
+        return None
+    return _ToleranceLimit(value=absolute, basis=f"absolute {absolute:g} dB")

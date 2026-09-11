@@ -652,7 +652,78 @@ plain.json:     identical outside wall-clock fields
 **判断**：那次清理的收益（去掉 12 行重复定义）远小于风险与已耗时间，且不影响泛化能力本身；
 注册表已经把**每域改动成本**从 4 处降到 1 处，这才是目标关心的量。
 
-### 11.9 下一步（按价值排序）
+### 11.9 目标容差从未被编译（2026-09-11，第七轮，真实缺陷）
+
+**发现过程**：做覆盖矩阵审计时（§11.10）探测"AC 滤波器阶数"维度，结果异常：
+
+| 需求 | 选中器件 | RMSE | `constraint_report.passed` |
+|---|---|---|---|
+| 1 阶 Butterworth | rc_lowpass (2 元件) | 2.3e-8 dB | True |
+| **2 阶** Butterworth | rc_lowpass (2 元件) | **9.6 dB** | **True** |
+| **4 阶** Butterworth | rc_lowpass (2 元件) | **32.1 dB** | **True** |
+
+一个 4 阶 Butterworth 需求被一个一阶 RC 满足，误差 32 dB，而系统报告
+`verified_feasible`。
+
+**根因**：`circuit_ai/constraints/compiler.py` 的 `_compile_frequency_target`
+对滤波器目标**只生成一条软目标**（`target.N.minimize_rmse_db`，severity=objective），
+**从不读取 `targets[N].tolerance`**。因此验收门实际上对滤波器需求不设任何硬限：
+`constraint_report` 里除了结构性硬约束外，与频响有关的只有 `status=observed` 的目标项，
+`passed` 恒为 true。
+
+`计划:186` §3.5「无证据不宣称」在此处被违反——不是靠伪造，而是靠**没有生成约束**。
+
+**修法**：新增 `_target_tolerance_limit()`，把目标容差编译成一条 **HARD MAXIMUM** 约束
+（`target.N.rmse_db_within_tolerance`），与软目标**共用同一个 metric**，因此两者不会漂移。
+
+| 容差写法 | 转成的 dB 限值 |
+|---|---|
+| `absolute: 0.5` | 0.5 dB |
+| `relative: 0.05` | `20·log10(1.05)` ≈ 0.424 dB |
+
+同时给出时的优先级：**relative 优先**，因为相对带随需求缩放，而绝对误差是用户需要猜的数字。
+转换按**对称带**处理，使限值不依赖滤波器自身增益——这正是写相对容差的意义。
+`bool` 被显式排除（Python 里 `True` 是 `int`，否则会被读成 1 dB 容差）。
+
+#### 11.9.1 影响（实测，非推算）
+
+| 度量 | 改动前 | 改动后 |
+|---|---|---|
+| 全量测试 | 527 passed | **546 passed / 0 failed**（无回归） |
+| 经典用例（planner-supported 且 schema 级）执行成功 | 57 / 67 | **55 / 67** |
+
+**为什么少了 2 个**：`ac_active_highpass_5khz` 与 `ac_active_highpass_20khz`
+此前**一直在违反它们自己声明的容差**——实测误差 9.578 dB，声明 `maximum = 1 dB`。
+它们过去"通过"只是因为限值从未被求值。
+
+**这不是能力退化，而是把假通过改成了真报告。** §10 里"57 个可执行"的口径应更新为
+"55 个可执行，另 2 个经容差求值后确认超限"。
+
+#### 11.9.2 遗留
+
+- 这 2 个用例现在失败是正确的（设计确实不满足需求），但**是否要修设计**（例如允许更高阶
+  或有源模板）还是**收窄它们的声明容差**，属产品决策。
+- 覆盖矩阵同时确认：`bandstop` / `allpass` 仍不支持（§10 已登记），
+  4 个 TIA 用例的 observable 名不匹配，`bandgap_2v5` 是清单路径缺陷。
+
+### 11.10 覆盖矩阵审计（2026-09-11）
+
+对"能覆盖更多样的设计需求"做一次实测审计，逐轴探测，失败项如实列出：
+
+| 轴 | 结果 |
+|---|---|
+| AC 滤波类型 | 2/5（lowpass、highpass 通过；bandpass 在我的 R/C 库里无模板，换 R/C/L 后 7.8e-8 dB 通过；bandstop、allpass 不支持） |
+| AC 阶数 | 4/4（1–4 阶都能构造，但 2 阶以上**不再假通过**，见 §11.9） |
+| AC 阻抗类 | 3/3 |
+| 非隔离电源族 | 2/2（buck、boost） |
+| DC 验收域组合 | 4/4（包络、包络+损耗、包络+损耗+定标轨、包络+负载阶跃） |
+| AC 验收域 | 1/1（频带掩模） |
+| 显式拒绝 | 2/2（noise、s_parameter 均以 `CapabilityPlanError` 拒绝而非静默通过） |
+
+**结论**：18/21 通过；3 个失败中 1 个是我的探测库限制（bandpass 需要 R/C/L），
+2 个是已登记的 bandstop/allpass 不支持。
+
+### 11.11 下一步（按价值排序）
 
 1. **闭环/稳压**（§11.2，最高价值）：完整做法是反馈补偿设计；当前只做到
    "选择在哪个轨上定标"并如实报告剩余偏差，以及报告所需占空比调度（§11.6）。
