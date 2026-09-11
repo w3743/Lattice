@@ -327,17 +327,79 @@ def test_synthesis_evaluates_the_declared_mask_on_the_measured_response() -> Non
     json.dumps(entry)
 
 
-def test_band_verdict_is_independent_of_the_shape_score() -> None:
-    """A design can track a target closely and still break a band floor."""
+def test_band_verdict_is_reported_separately_from_the_score() -> None:
+    """The verdict is a pass/fail fact; the score is a number to minimise.
+
+    These must not be conflated: the report has to name *which* band decided it,
+    at which frequency, against which limit.
+    """
+
+    frequencies = np.logspace(1, 6, 400)
+    gains = 20 * np.log10(_first_order_lowpass(frequencies, 10000.0))
+    report = evaluate_filter_mask(_mask(), frequencies, gains)
+    assert not report.passed
+    failing = next(band for band in report.bands if not band.passed)
+    assert failing.band_id == report.worst_band
+    assert failing.worst_frequency_hz is not None
+    assert failing.violated_limit in {"min_db", "max_db"}
+
+
+def test_an_unsatisfiable_band_floor_is_charged_into_the_score() -> None:
+    """The mask guides the search; it does not only judge the result."""
 
     payload = _masked_spec()
     payload.pop("relation", None)
-    # An unreachable stopband floor: no first-order R/C can meet it.
+    # No first-order R/C reaches -80 dB at 30 kHz, so every candidate must carry
+    # a band penalty and the stopband must stay failed.
     payload["behavior"]["filter_mask"]["bands"][1]["max_db"] = -80.0
     spec = SynthesisSpec.from_dict(payload)
     result = CircuitSynthesizer().synthesize(spec)[0]
 
-    assert result.metrics.rmse_db < 1.0, "the shape still tracks the target closely"
     assert result.filter_mask_report is not None
-    assert not result.filter_mask_report.passed, "but the band floor is broken"
-    assert result.filter_mask_report.failed_bands == ("stop",)
+    assert not result.filter_mask_report.passed
+    assert "stop" in result.filter_mask_report.failed_bands
+    assert result.metrics.band_mask_penalty > 0.0
+
+    # The charge is the sum of measured shortfalls, so it is attributable rather
+    # than a flat constant.  With an impossible stopband floor the optimizer
+    # trades the passband away chasing it, so more than one band may be short --
+    # which is exactly the pressure the mask is supposed to exert.
+    shortfall = sum(
+        -float(band.margin_db)
+        for band in result.filter_mask_report.bands
+        if band.margin_db is not None and band.margin_db < 0.0
+    )
+    assert shortfall > 0.0
+    assert result.metrics.band_mask_penalty == pytest.approx(shortfall, rel=1e-6)
+
+
+def test_a_satisfiable_mask_carries_no_penalty() -> None:
+    """Guards against the charge being unconditional."""
+
+    payload = _masked_spec()
+    payload.pop("relation", None)
+    # -6 dB at 30 kHz is easily reached by a first-order corner near 1 kHz.
+    payload["behavior"]["filter_mask"]["bands"][1]["max_db"] = -6.0
+    spec = SynthesisSpec.from_dict(payload)
+    result = CircuitSynthesizer().synthesize(spec)[0]
+
+    assert result.metrics.band_mask_penalty == 0.0
+    assert result.filter_mask_report is not None
+    assert result.filter_mask_report.passed
+
+
+def test_an_unmasked_design_is_charged_nothing() -> None:
+    """No mask means no penalty, so existing metrics are untouched."""
+
+    spec = SynthesisSpec.from_dict(
+        {
+            "name": "unmasked_penalty",
+            "ports": 2,
+            "behavior": {"kind": "lowpass", "cutoff_hz": 1000, "order": 1, "frequency_range_hz": [10, 100000]},
+            "library": {"allowed": ["R", "C"], "parameter_ranges": {"R": [100, 1e6], "C": [1e-10, 1e-4]}},
+            "optimization": {"points": 24, "max_iterations": 2, "top_k": 1, "seed": 3},
+        }
+    )
+    result = CircuitSynthesizer().synthesize(spec)[0]
+    assert result.metrics.band_mask_penalty == 0.0
+    assert result.filter_mask_report is None

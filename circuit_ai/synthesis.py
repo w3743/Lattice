@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-import math
 import json
+import math
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Mapping, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -15,15 +16,15 @@ from .capabilities import (
     CapabilityRole,
     build_default_registry,
 )
+from .catalog import topology_record_by_name
 from .constraints import (
     ConstraintEvaluator,
-    FeasibilityStatus,
     ConstraintOperator,
     ConstraintReport,
     ConstraintSeverity,
     ConstraintSpec,
+    FeasibilityStatus,
 )
-from .catalog import topology_record_by_name
 from .differentiable import DifferentiableRefinementResult, refine_graph_parameters
 from .discretization import DiscretizationResult, discretize_template_candidates
 from .feasibility import FeasibilityReport, enforce_feasibility
@@ -33,13 +34,13 @@ from .frequency_mask import (
     evaluate_filter_mask,
     mask_from_mapping,
 )
-from .optimizers import DifferentialEvolutionParameterOptimizer, ParameterOptimizer
+from .metrics import MetricContext, MetricEngine, MetricSpec
 from .optimization import (
     FidelityDisagreement,
     FidelityRole,
     FidelitySchedule,
-    FidelityScheduleRun,
     FidelityScheduler,
+    FidelityScheduleRun,
     FidelityStage,
     OptimizationRunResult,
     attach_disagreement_diagnostics,
@@ -47,23 +48,30 @@ from .optimization import (
     default_ac_fidelity_schedule,
     disagreement_from_options,
 )
+from .optimizers import DifferentialEvolutionParameterOptimizer, ParameterOptimizer
 from .pareto import metrics_to_objectives, pareto_points
-from .metrics import MetricContext, MetricEngine, MetricSpec
 from .proposers import HeuristicProposer, TopologyProposer
 from .robustness import RobustnessMetrics, analyze_robustness, robustness_penalty
-from .spec import SynthesisSpec
-from .targets import TargetResponse, frequency_grid, target_from_behavior
-from .templates import CircuitTemplate
 from .simulation import (
+    SimulationExecutor,
     SimulationRequest,
     SimulationResult,
     SimulationStatus,
-    SimulationExecutor,
     legacy_ac_simulation_request,
 )
+from .spec import SynthesisSpec
+from .targets import TargetResponse, frequency_grid, target_from_behavior
+from .templates import CircuitTemplate
 
 if TYPE_CHECKING:
     from .graph import CircuitGraph
+
+#: Charged when a response is non-finite or shape-mismatched while a mask is
+#: declared: such a design must never look better than one that was evaluated.
+_BAND_MASK_UNEVALUABLE_PENALTY = 1e3
+#: Charged per band that holds no analysed sample, because an unpopulated band
+#: is not evidence of compliance.
+_BAND_MASK_EMPTY_BAND_PENALTY = 1e2
 
 
 @dataclass(frozen=True)
@@ -86,6 +94,9 @@ class SynthesisMetrics:
     selection_score: float | None = None
     surrogate: dict[str, Any] | None = None
     optimization_run: OptimizationRunResult | None = None
+    #: Total band-mask shortfall charged into the score.  Zero when the spec
+    #: declared no mask, so an unmasked design's metrics are unchanged.
+    band_mask_penalty: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -110,7 +121,7 @@ class SynthesisResult:
     def netlist(self, title: str | None = None) -> str:
         return self.template.netlist(self.parameters, title=title or self.template.name)
 
-    def circuit_graph(self) -> "CircuitGraph":
+    def circuit_graph(self) -> CircuitGraph:
         graph = self.template.to_graph(self.parameters)
         if self.discretization is not None:
             from .graph import Rating
@@ -839,6 +850,11 @@ class CircuitSynthesizer:
         }
         weights.update(spec.optimization.weights)
 
+        band_penalty = _band_mask_penalty(target, response, frequencies=target.frequencies_hz)
+        total_weight = sum(float(value) for value in weights.values())
+        if total_weight <= 0.0:
+            total_weight = 1.0
+        band_weight = _band_mask_weight(spec)
         score = (
             weights["rmse_db"] * rmse_db
             + weights["max_abs_db"] * max_abs_db
@@ -847,6 +863,11 @@ class CircuitSynthesizer:
             + weights["cost"] * estimated_cost
             + weights["area_mm2"] * estimated_area_mm2
             + weights["topology_risk"] * topology_risk
+            # A band breach is an acceptance failure, not a shape error, so it
+            # is charged in the same units as the rest of the objective scaled by
+            # the declared weights.  Without this the optimizer happily trades a
+            # stopband floor away for a slightly better average fit.
+            + band_weight * total_weight * band_penalty
         )
 
         return SynthesisMetrics(
@@ -859,6 +880,7 @@ class CircuitSynthesizer:
             optimizer_message=optimizer_message,
             estimated_cost=estimated_cost,
             estimated_area_mm2=estimated_area_mm2,
+            band_mask_penalty=band_penalty,
             topology_risk=topology_risk,
             robustness=None,
             differentiable=None,
@@ -877,10 +899,14 @@ def write_results(
     best_bound_netlist: str | None = None
     export_records: list[dict[str, Any]] = []
     if results:
-        from .schematic import render_result_svg, render_results_index_html
-        from .kicad import materialize_model_bindings, render_result_kicad_schematic, render_kicad_project
-        from .spice import apply_model_bindings
         from .graph_exports import export_circuit_graph
+        from .kicad import (
+            materialize_model_bindings,
+            render_kicad_project,
+            render_result_kicad_schematic,
+        )
+        from .schematic import render_result_svg, render_results_index_html
+        from .spice import apply_model_bindings
 
         for index, result in enumerate(results, start=1):
             filename = f"candidate_{index}.svg"
@@ -980,6 +1006,56 @@ def write_results(
         )
 
 
+def _band_mask_penalty(
+    target: TargetResponse,
+    response: np.ndarray,
+    *,
+    frequencies: np.ndarray,
+) -> float:
+    """How badly an intermediate response breaks the declared band mask.
+
+    Returns 0.0 when the spec declared no mask, so an unmasked design's score is
+    bit-identical to before.  Otherwise it is the total shortfall in dB, which is
+    zero exactly when every band holds.
+    """
+
+    mask = getattr(target, "filter_mask", None)
+    if mask is None:
+        return 0.0
+    values = np.asarray(response)
+    if values.shape != np.asarray(frequencies).shape or not np.all(np.isfinite(values)):
+        # A response that cannot be evaluated is charged as a breach rather than
+        # silently scoring well.
+        return _BAND_MASK_UNEVALUABLE_PENALTY
+    magnitudes_db = 20.0 * np.log10(np.maximum(np.abs(values), 1e-300))
+    report = evaluate_filter_mask(mask, frequencies, magnitudes_db)
+    shortfall = sum(
+        -float(band.margin_db)
+        for band in report.bands
+        if band.margin_db is not None and band.margin_db < 0.0
+    )
+    # A band with no samples never passed; charge it too, so the optimizer cannot
+    # escape a band by moving the cut-off out of the analysed range.
+    shortfall += _BAND_MASK_EMPTY_BAND_PENALTY * sum(
+        1 for band in report.bands if band.margin_db is None and not band.passed
+    )
+    return float(shortfall)
+
+
+def _band_mask_weight(spec: SynthesisSpec) -> float:
+    """How strongly a band breach is charged, relative to the shape objective.
+
+    Defaults to 1.0, i.e. one dB of breach costs as much as one dB of RMS error.
+    A spec may raise it to insist harder on the mask.
+    """
+
+    raw = spec.optimization.weights.get("band_mask", 1.0)
+    try:
+        return float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"weights.band_mask must be a number, got {raw!r}") from exc
+
+
 def _ac_filter_mask_report(
     target: TargetResponse,
     simulation_result: SimulationResult,
@@ -1009,7 +1085,7 @@ def _ac_filter_mask_report(
 
 def _ac_constraint_report(
     result: SynthesisResult,
-    graph: "CircuitGraph",
+    graph: CircuitGraph,
     request: SimulationRequest,
     simulation_result: SimulationResult,
 ) -> ConstraintReport:
