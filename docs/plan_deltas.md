@@ -773,7 +773,80 @@ plain.json:     identical outside wall-clock fields
 经典 67 个 planner-supported schema 用例：**55 执行、0 超限**，与修复前一致
 （这些用例的 `efficiency: 0.8` 在 0.9215 下本就满足）。
 
-### 11.12 下一步（按价值排序）
+### 11.12 外部工具其实可用——"未验证"结论建立在错误的搜索范围上（2026-09-11，第九轮）
+
+**这是本项目至今最重要的一次更正。**
+
+自移交报告以来，全部文档都写着：
+
+> `ngspice`、`kicad-cli`、`kicad` **均不在 PATH**，无 KiCad 安装目录
+> → 所有"真实 SPICE / KiCad 可打开"类验证**未做**，后续也不得声称已做。
+
+这条结论**是错的**，而且错了 9 轮。实测：
+
+| 工具 | 实际位置 | 状态 |
+|---|---|---|
+| **ngspice** | `C:\Users\wangj\AppData\Local\Autodesk\webdeploy\production\<hash>\Applications\Electron\LibEagle\ngspice\bin\ngspice.exe` | **可用**，批处理模式 0.17 s 跑完一次 AC 扫描 |
+| **KiCad 10.0.4** | `E:\kicad\bin\kicad-cli.exe`（含 `eeschema.exe`） | **可用** |
+| EasyEDA 模拟器 | `C:\Program Files\lceda-pro-sim\ngspice.dll` + 器件模型库（BSIMBULK/HICUM/PSP/VBIC） | 仅 DLL，无独立 exe |
+
+**错误来源**：`NgspiceSimulatorBackend.available()` 与 `NgspiceVerifier.available()`
+只查 `PATH` 和调用者给定的路径。ngspice 是**作为另一个应用的组件**安装的——
+这是打包副本的常见形态，而这类副本**用于批处理完全正常**。
+
+**后果**：一个错误的可用性判断，被当成"无法验证"的正当理由沿用了 9 轮，
+进而让每一轮我都拒绝声称任何外部验证。**结论正确与否，取决于搜索范围是否诚实**，
+而这一条从未被复查过。
+
+#### 11.12.1 修法
+
+新增 `circuit_ai/spice_discovery.py`，搜索顺序**显式**：显式路径 → 环境变量
+（`LATTICE_NGSPICE` / `CIRCUIT_AI_NGSPICE`）→ `PATH` → 已知安装/打包位置。
+只做 `is_file()` 判断，**不执行**——GUI-capable 程序拿到不认识的参数会**弹窗**
+而不是报错（本轮我实际触发过一次，打扰到了用户）。
+
+两个细节值得记录：
+
+- **`definitely_missing*` 惯例必须保留**：多个测试与 spec 用这个前缀名**要求"无外部后端"**。
+  若发现机制覆盖它，一台装有 ngspice 的机器会把**有意的可用性测试变成假通过**。
+- **Windows 需补扩展名**：`Path(dir) / "ngspice"` 找不到 `ngspice.exe`，
+  而 `shutil.which` 自己会补。
+
+#### 11.12.2 顺带修掉一个真实缺陷：ngspice 会挂起而不是报错
+
+`NgspiceVerifier` 传入**相对** `work_dir` 加**相对** netlist 路径。ngspice 打不开
+netlist 参数时**退回交互模式**，于是调用一直阻塞到超时（实测 20 s），
+而**不是**报告文件缺失。**所有手工测试我都用了绝对路径**，所以这个 bug 一直没暴露。
+
+修法：`work_dir` 与 netlist 路径一律 `resolve()` 成绝对路径，`cwd=str(...)`。
+`NgspiceSimulatorBackend` 同样处理（它的 `TemporaryDirectory` 本就绝对，加 `resolve()` 防退化）。
+
+另修：`NgspiceVerifier` 原先**只在 `available()` 里做发现**，`self.executable` 仍是裸名，
+于是"检查的路径"与"运行的路径"不一致——可用性报 true，实际运行却找不到程序。
+现在构造时就解析一次，检查与运行用同一个路径。
+
+### 11.13 首次真实外部验证结果（2026-09-11）
+
+**这是本项目第一次用独立仿真器验证内部模型。** 此前所有 "verified" 都只意味着
+"内部模型自洽"。
+
+| 电路 | 内部模型最大误差 | ngspice 最大误差 | 偏差 |
+|---|---|---|---|
+| RC 低通 1 kHz | 8.75e-08 dB | 1.83e-05 dB | ~1.8e-05 dB |
+| RC 高通 1 kHz | 1.15e-08 dB | 4.40e-05 dB | ~4.4e-05 dB |
+| RC 低通 10 kHz | 1.75e-03 dB | 1.75e-03 dB | 一致 |
+| RLC 带通 1 kHz | 2.47e-07 dB | 2.30e-05 dB | ~2.3e-05 dB |
+
+**结论**：内部线性 MNA 与 ngspice 在 R/C/L 网络上一致到 **4.4e-5 dB** 以内。
+测试 `tests/test_external_spice.py` 以 **0.1 dB** 为界锁定（刻意宽松：这是验证两个模型
+描述同一个电路，不是验证它们逐位相同），并在无外部 SPICE 的机器上自动 skip。
+
+**仍不得声称**：KiCad 可打开性尚未验证（`kicad-cli` 已确认可用，但导出文件尚未真正打开过）；
+非线性/有源/s 参数仍未实现，因此**那些**结论依然是"未验证"。
+
+全量：572 → **584 passed / 0 failed**。
+
+### 11.14 下一步（按价值排序）
 
 1. **闭环/稳压**（§11.2，最高价值）：完整做法是反馈补偿设计；当前只做到
    "选择在哪个轨上定标"并如实报告剩余偏差，以及报告所需占空比调度（§11.6）。

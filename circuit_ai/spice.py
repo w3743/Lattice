@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from . import spice_discovery
 from .formatting import db20
 from .targets import target_from_behavior
 
@@ -156,13 +157,19 @@ class NgspiceVerifier:
         timeout_s: float = 30.0,
         points_per_decade: int = 80,
     ):
-        self.executable = executable
+        # Resolve once, here, so the path that is *checked* is the path that is
+        # *run*. Resolving only inside available() reported success while the
+        # invocation still used the bare name, which fails unless the program is
+        # on PATH -- the very case discovery exists to handle.
+        resolved, reason = spice_discovery.resolve(executable)
+        self.executable = resolved
+        self.discovery_reason = reason
         self.extra_args = extra_args
         self.timeout_s = timeout_s
         self.points_per_decade = points_per_decade
 
     def available(self) -> bool:
-        if Path(self.executable).exists():
+        if Path(self.executable).is_file():
             return True
         return shutil.which(self.executable) is not None
 
@@ -201,10 +208,16 @@ class NgspiceVerifier:
         if base_dir:
             base_dir.mkdir(parents=True, exist_ok=True)
             work_ctx = None
-            work_dir = base_dir
+            # Resolve to an absolute path, and pass absolute paths to the
+            # process below. ngspice is a GUI-capable program: given a netlist
+            # argument it cannot open -- which a relative cwd plus a relative
+            # argument makes easy to produce -- it falls back to an interactive
+            # session instead of exiting, and the call then hangs until the
+            # timeout instead of reporting a missing file.
+            work_dir = base_dir.resolve()
         else:
             work_ctx = tempfile.TemporaryDirectory(prefix="circuit_ai_ngspice_")
-            work_dir = Path(work_ctx.name)
+            work_dir = Path(work_ctx.name).resolve()
 
         try:
             raw_path = work_dir / f"{result.template.name}_ngspice.raw"
@@ -223,7 +236,7 @@ class NgspiceVerifier:
             )
             completed = subprocess.run(
                 [self.executable, *self.extra_args, "-b", str(netlist_path)],
-                cwd=work_dir,
+                cwd=str(work_dir),
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

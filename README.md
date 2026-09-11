@@ -36,10 +36,17 @@ Being explicit here matters more than sounding capable:
   complete evidence chain (`report.json`, `replay.jsonl`, `episode.jsonl`).
 - **Explicitly refused, not silently wrong:** noise, S-parameter, thermal,
   impedance and stability requirements currently return a capability gap.
-- **Not verified by external tools:** `ngspice` and KiCad are not installed in
-  this environment, so every "verified" verdict is internal-model consistency,
-  not an external physics check. Exports are text-validated but have never been
-  opened by KiCad. Do not read them as tape-out ready.
+- **External verification is now possible, and has been done once.** ngspice and
+  KiCad are installed on this machine but not on `PATH`; both are discovered
+  (`circuit_ai/spice_discovery.py`) and a bundled copy works fine for batch use.
+  The internal linear MNA matches ngspice to within **4.4e-5 dB** on R/C/L
+  networks, locked by `tests/test_external_spice.py` at a 0.1 dB bound.
+  Earlier statements in this repository that no external verification was
+  possible were wrong, because availability was checked on `PATH` only.
+- **Still not verified:** the exported KiCad files have never actually been
+  opened in KiCad, and nothing outside the linear R/C/L model set (active
+  devices, nonlinear, s-parameter, digital) exists to verify — so claims about
+  those remain unsupported.
 - **Not modelled:** magnetic core loss, semiconductor thermal behaviour,
   electromagnetic interference, and control-loop stability. The loss model
   reports `core_loss_modelled: false` rather than hiding the omission.

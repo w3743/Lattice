@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
 from time import perf_counter
 from typing import Any
 
 import numpy as np
 
+from .. import spice_discovery
 from ..graph import (
     CircuitGraph,
     ModelRef,
@@ -40,7 +41,7 @@ class NgspiceCompiledModel:
     graph: CircuitGraph
     circuit: LinearCircuit
     model_manifest: tuple[ModelRef, ...]
-    topology_template: "NgspiceTopologyTemplate | None" = None
+    topology_template: NgspiceTopologyTemplate | None = None
 
 
 @dataclass(frozen=True)
@@ -85,8 +86,18 @@ class NgspiceSimulatorBackend:
         extra_args: tuple[str, ...] = (),
         timeout_s: float = 30.0,
         backend_version: str = "unknown",
+        discover: bool = True,
     ) -> None:
         self.executable = executable
+        self.discovery_reason = "discovery disabled"
+        if discover:
+            # A bundled copy (Eagle ships one, EasyEDA links one) works fine for
+            # batch invocation even though it is not on PATH, so a PATH-only
+            # check used to report "no external verification is possible" on a
+            # machine where verification was in fact available.
+            resolved, reason = spice_discovery.resolve(executable)
+            self.executable = resolved
+            self.discovery_reason = reason
         self.extra_args = extra_args
         self.timeout_s = timeout_s
         self.backend_version = backend_version
@@ -99,8 +110,8 @@ class NgspiceSimulatorBackend:
     def available(self) -> tuple[bool, str]:
         available = Path(self.executable).is_file() or shutil.which(self.executable) is not None
         if available:
-            return True, f"ngspice executable is available: {self.executable}"
-        return False, f"ngspice executable is unavailable: {self.executable}"
+            return True, f"ngspice executable is available: {self.executable} ({self.discovery_reason})"
+        return False, f"ngspice executable is unavailable: {self.executable} ({self.discovery_reason})"
 
     def compile(self, graph: CircuitGraph) -> NgspiceCompiledModel:
         graph.require_valid()
@@ -173,7 +184,12 @@ class NgspiceSimulatorBackend:
             )
 
         with tempfile.TemporaryDirectory(prefix="circuit_ai_ngspice_") as directory:
-            work_dir = Path(directory)
+            # Absolute, and passed absolutely below: ngspice is GUI-capable and
+            # falls back to an interactive session -- hanging until the timeout
+            # -- if it cannot open the netlist argument, which a relative cwd
+            # makes easy to produce. TemporaryDirectory already yields an
+            # absolute path, and resolve() keeps that true if it ever does not.
+            work_dir = Path(directory).resolve()
             raw_path = work_dir / "result.raw"
             netlist_path = work_dir / "simulation.cir"
             try:
@@ -215,7 +231,7 @@ class NgspiceSimulatorBackend:
                 try:
                     completed = subprocess.run(
                         [self.executable, *self.extra_args, "-b", str(netlist_path)],
-                        cwd=work_dir,
+                        cwd=str(work_dir),
                         text=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
