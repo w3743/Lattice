@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from circuit_ai.ir import pbdl_to_ir
 from circuit_ai.constraints import FeasibilityStatus
@@ -126,6 +127,88 @@ def test_power_replay_marks_missing_high_fidelity_evidence_rejected(tmp_path) ->
 
     assert rows
     assert all(row["label"]["accepted"] is False for row in rows)
+
+
+def test_power_path_records_model_disagreement_between_planning_and_spice(monkeypatch) -> None:
+    """Plan §7.3 rule 4 on the power path: averaged vs SPICE, same candidate.
+
+    ngspice is unavailable here, so the truth backend echoes the planning
+    result with one observable moved well past the threshold.  The pairing,
+    the comparison record and the diagnostic must all still be produced.
+    """
+
+    from dataclasses import replace
+
+    from circuit_ai.optimization import MODEL_DISAGREEMENT_CODE
+    from circuit_ai.simulation import SimulationExecutor
+    from circuit_ai.simulation.backends import AnalyticPowerSimulatorBackend
+    from circuit_ai.simulation.ngspice_backend import NgspiceSimulatorBackend
+
+    # SimulationExecutor uses a process-wide default cache that no test clears,
+    # so an earlier test running the same spec would otherwise hand this test a
+    # cached planning result and the spy below would never see a call.
+    SimulationExecutor().cache.clear()
+
+    captured: dict[str, object] = {}
+    original = AnalyticPowerSimulatorBackend.simulate
+
+    def planning_spy(self, compiled, request):
+        result = original(self, compiled, request)
+        # Keyed by graph so several candidates in one run cannot collide, and
+        # so a previous test's leftovers can never be picked up.
+        captured[result.graph_hash] = result
+        return result
+
+    def fake_available(self):
+        return True, "echoing test backend"
+
+    def fake_compile(self, graph):
+        return graph
+
+    def fake_simulate(self, compiled, request):
+        """Echo the planning numbers, but move output_voltage_v by 20%."""
+
+        base = captured[request.graph_id] if request.graph_id in captured else captured[
+            compiled.graph_hash
+        ]
+        scalars = {
+            name: replace(quantity, value=quantity.value * (1.2 if name == "output_voltage_v" else 1.0))
+            for name, quantity in base.scalars.items()
+        }
+        return replace(
+            base,
+            request_id=request.request_id,
+            request_hash=request.request_hash,
+            fidelity=request.fidelity,
+            scalars=scalars,
+        )
+
+    monkeypatch.setattr(AnalyticPowerSimulatorBackend, "simulate", planning_spy)
+    monkeypatch.setattr(NgspiceSimulatorBackend, "available", fake_available)
+    monkeypatch.setattr(NgspiceSimulatorBackend, "compile", fake_compile)
+    monkeypatch.setattr(NgspiceSimulatorBackend, "simulate", fake_simulate)
+
+    data = json.loads(BOOST_SPEC.read_text(encoding="utf-8"))
+    data.setdefault("optimization", {})["spice_verification"] = {
+        "enabled": True,
+        "executable": "echoing_power_truth",
+    }
+    data["optimization"]["fidelity_disagreement"] = {"enabled": True, "threshold": 0.01}
+
+    result = design_from_pbdl(data)
+
+    assert result.fidelity_comparisons, "the two fidelities must be compared"
+    comparison = result.fidelity_comparisons[0]
+    assert comparison.compared_anything
+    assert comparison.low_fidelity == "ideal_averaged"
+    assert comparison.high_fidelity == "spice"
+    assert comparison.disagreed
+    assert comparison.worst_observable == "output_voltage_v"
+    assert comparison.max_deviation == pytest.approx(0.2 / 1.2, rel=1e-6)
+    assert len(result.model_disagreements) == 1
+
+    spice_result = next(item for item in result.simulation_results if item.fidelity == "spice")
+    assert MODEL_DISAGREEMENT_CODE in {item.code for item in spice_result.diagnostics}
 
 
 def test_isolated_high_current_spec_selects_flyback(tmp_path) -> None:

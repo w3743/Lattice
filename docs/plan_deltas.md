@@ -46,7 +46,7 @@
 | **C3** | §16.2 声明阶段 7A/7B/7C 原型“必须复用阶段 2、3、4 的最小版本和迁移器，不能建立第二套事实模型”，但阶段 2 的 `计划:1576` 已勾选“核心语义从 metadata 提升为正式字段”，主流程却仍以 metadata 做能力分派 | `计划:1495-1503`、`计划:1576` vs `circuit_ai/pipeline.py:404`（`candidate.metadata.get("solver")`） |
 | **C4** | 章节编号断裂：`## 网页端全流程验收与错误报告` 未纳入 §1–§23 编号体系，但正文又把它当作强制验收要求 | `计划:2007`（无编号新章，紧接 §23 结尾 `计划:2006`） |
 | **C5** | §19.1“family 名称变化不得影响后端能力解析”与实现的 family 过滤冲突 | `计划:1866` vs `circuit_ai/capabilities/contracts.py:150`、`circuit_ai/capabilities/registry.py:125-126`、`circuit_ai/capabilities/builtins.py:24` |
-| **C6** | §7.3 规则 4 要求后端差异超门槛时标记 `model_disagreement` 并进入诊断队列；实现中只有 surrogate 集成分歧 | `计划:652-653` vs `grep -rn "model_disagreement" circuit_ai/` 无命中，仅 `circuit_ai/surrogate.py:314` 的 ensemble disagreement |
+| **C6** | §7.3 规则 4 要求后端差异超门槛时标记 `model_disagreement` 并进入诊断队列；实现中只有 surrogate 集成分歧 | `计划:652-653` vs `grep -rn "model_disagreement" circuit_ai/` 无命中，仅 `circuit_ai/surrogate.py:314` 的 ensemble disagreement。**已解决（2026-09-11）**：契约实现于 `circuit_ai/optimization/fidelity.py`，接入 AC 真值门与电源路径，见 §9 |
 | **C7** | 文档声明路径为旧仓库名，与实际目录不符 | `计划:4` `适用仓库：E:/Pioneer/ai电路` vs 实际 `E:/Pioneer/自动电路设计研究` |
 
 ---
@@ -175,4 +175,67 @@ replay 按 spec 的训练/验证隔离）经核查确实缺少对应测试，不
   复核确认其内容为 arXiv 2608.25512 论文抓取物（`meta.py` 为提取脚本，
   标题《A Programming Paradigm for Spatiotemporal Composability》，
   作者含 DeepSeek-AI），**与本项目电路设计主题无关**。
+
+---
+
+## 9. `model_disagreement` 落地记录（2026-09-11，任务 H）
+
+§7.3 规则 4 从"缺分支"变为已实现。登记本节的目的是说明**实现范围与未验证边界**，
+避免后续把本机测不出来的部分当成已验证。
+
+### 9.1 交付物
+
+| 项 | 位置 |
+|---|---|
+| 偏差与分歧契约 | `circuit_ai/optimization/fidelity.py`：`ObservableDeviation`、`FidelityDisagreement`、`compare_observable`、`compare_fidelity_results`、`attach_disagreement_diagnostics`、`disagreement_from_options`、`graphs_are_comparable` |
+| 稳定诊断 code | `MODEL_DISAGREEMENT_CODE = "model_disagreement"`（severity `warning`） |
+| 策略键 | `optimization.fidelity_disagreement {enabled, threshold}`，**缺省关闭**；`circuit_ai/spec.py` `OptimizationSpec` 新增同名字段 |
+| AC 接入 | `circuit_ai/synthesis.py` `_attach_simulation_evidence`：请求真值后端时**同时**跑内部模型，两侧都 PASSED 才比对 |
+| 电源接入 | `circuit_ai/pipeline.py` `_pair_truth_with_planning` + 候选循环；比较记录写入 `report.json` 的 `fidelity_comparisons` |
+| 结果字段 | `SynthesisResult.fidelity_comparison`、`PowerCandidateEvaluation.fidelity_comparisons`、`PowerDesignResult.fidelity_comparisons` / `model_disagreements` |
+| 测试 | `tests/test_fidelity_disagreement.py`（12 项）、`tests/test_power_pipeline.py` 新增电源路径端到端 1 项 |
+| 计划回填 | `计划:1856` 多保真 disagreement 由 `[ ]` 改为 `[x]`；§18.2 现为 15/15 |
+
+### 9.2 过程中发现并修复的两个真实缺陷
+
+1. **`_as_float_array` 强制 complex dtype**，导致 `_is_complex_like` 恒为真：
+   所有观测量（含实值 DC 量）都走 dB 分支，文档承诺的"实值按较大幅值取比例"分支
+   **是死代码**。已改为保留 dtype（仅 `c`/`O` 才转 complex），两条分支均有用例覆盖。
+2. **`_pair_truth_with_planning` 按元组位置配对**：原实现用 `zip(truth_requests, truth_results)`
+   取请求 id，若两个元组次序不一致就会静默配错——正是"比较不同对象却报告为同一候选"的错误。
+   已改为按 `SimulationResult.request_id` 建索引配对，并以乱序用例锁定。
+
+附带登记：标量比较原先在 `compare_observable` 内被硬编码为 `kind="waveform"`，
+由调用方覆盖；现已改为显式 `kind` 参数。此为非行为性清理。
+
+### 9.3 未验证边界（不得声称已验证）
+
+- **本机无 `ngspice`**，因此"真实外部 SPICE 后端与内部模型产生分歧并被标记"的端到端路径
+  **未在真实后端上跑过**。AC 与电源两侧的集成测试均以**委托后端**（把内部模型结果按固定
+  dB/比例移动）替代真值后端，测试文档字符串已显式声明这一点。
+- 因此当前可声称的是：**分歧判定、留痕、诊断投递与两处配对逻辑已实现并有测试**；
+  **不能**声称"已完成真实 SPICE 与内部模型的一致性复核"。
+- AC 路径的比较仅在 `spice_verification.enabled=true` 时发生（此时才存在两个真后端）。
+  未开启时 AC 仍只有单一后端结果，不产生比较记录——这是设计选择，不是遗漏。
+
+### 9.4 关键设计选择（需用户知悉，未擅自变更既有契约）
+
+- **severity 取 `warning` 而非 `error`**：`SimulationResult` 的既有校验禁止 PASSED 结果携带
+  error 诊断（`circuit_ai/simulation/contracts.py:539-542`），且分歧是"低保证据不足以单独签发"，
+  不是"候选错误"。故选 warning，使不确定性可见而非把结果变成失败。
+- **分歧不改变 PASSED 状态**：结果仍为 PASSED 并附带诊断，避免把"证据质量"与"仿真成败"混为一谈。
+- **未收敛 `synthesis.py` 的第二套 `FidelitySchedule`**（报告 §8 的 P2 项）：
+  本次只新增比较能力，未改动 `ac.staged.v1` 的选阶逻辑，以免把两件事耦合成一次变更。
+  该项仍待办。
+- **共用阈值常量**：新增 `DEFAULT_DISAGREEMENT_THRESHOLD = 1.0` 作为默认值单一来源，
+  但**未**改动 `benchmark.py` / `replay.py` 中既有的 `accept_rmse_db: float = 1.0`
+  字面量——它们属"验收指标阈值"，与"后端分歧阈值"语义不同，合并会改变既有判定含义。
+
+### 9.5 顺带发现的既有测试隔离缺陷（未修，仅登记）
+
+`SimulationExecutor` 的默认缓存是**进程级全局单例**（`circuit_ai/simulation/execution.py:77,92`），
+且测试套件中无任何清理点。后果：先运行的用例会把同 spec 的仿真结果留给后运行的用例，
+使"依赖真实调用次数"的用例**随执行顺序失败**。本次在新增的电源用例内显式
+`SimulationExecutor().cache.clear()` 规避，但根因未动（清理点属于测试基建决策，
+可能影响既有缓存收益断言）。建议后续单列任务处理。
 
