@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import math
-from typing import Any, Callable, ClassVar, Mapping
-
-import numpy as np
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
+from typing import Any, ClassVar
 
 from .experts import TopologyCandidate
 from .ir import IRComponent, UnifiedIR
+from .operating_envelope import (
+    DutySchedule,
+    OperatingCorner,
+    OperatingEnvelope,
+    WorstCaseSummary,
+    enumerate_corners,
+    worst_case_summary,
+)
 from .optimization import (
     DifferentialEvolutionConfig,
     DifferentialEvolutionDriver,
@@ -19,13 +26,6 @@ from .optimization import (
     OptimizationVariable,
     VariableKind,
     VariableScale,
-)
-from .operating_envelope import (
-    OperatingCorner,
-    OperatingEnvelope,
-    WorstCaseSummary,
-    enumerate_corners,
-    worst_case_summary,
 )
 from .power_loss import (
     LossParameters,
@@ -105,7 +105,7 @@ class BoostOptimizationResult:
     #: Worst-case behaviour across the declared operating envelope.  ``None``
     #: when the spec declares no envelope, so single-point artifacts are
     #: unchanged.
-    envelope_analysis: "WorstCaseSummary | None" = None
+    envelope_analysis: WorstCaseSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -137,7 +137,7 @@ class FlybackOptimizationResult:
     optimizer_message: str
     objective: float
     optimization_run: OptimizationRunResult | None = None
-    envelope_analysis: "WorstCaseSummary | None" = None
+    envelope_analysis: WorstCaseSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -149,7 +149,7 @@ class BuckOptimizationResult:
     optimizer_message: str
     objective: float
     optimization_run: OptimizationRunResult | None = None
-    envelope_analysis: "WorstCaseSummary | None" = None
+    envelope_analysis: WorstCaseSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -161,7 +161,7 @@ class SepicOptimizationResult:
     optimizer_message: str
     objective: float
     optimization_run: OptimizationRunResult | None = None
-    envelope_analysis: "WorstCaseSummary | None" = None
+    envelope_analysis: WorstCaseSummary | None = None
 
 
 # Unit and scale of every decision variable shared by the ideal power stages.
@@ -294,7 +294,7 @@ def _ideal_stage_dc(
     *,
     ripple_factor: Callable[[float, float], float],
     inductor_ripple_factor: Callable[[float, float], float],
-    loss_parameters: "LossParameters | None" = None,
+    loss_parameters: LossParameters | None = None,
     switch_voltage_v: float = 0.0,
     duty_transform: Callable[[float], float] | None = None,
 ) -> BoostOperatingPoint:
@@ -364,7 +364,7 @@ def solve_ideal_boost_dc(
     vin: float,
     parameters: BoostParameters,
     *,
-    loss_parameters: "LossParameters | None" = None,
+    loss_parameters: LossParameters | None = None,
 ) -> BoostOperatingPoint:
     return _ideal_stage_dc(
         vin,
@@ -385,7 +385,7 @@ def solve_ideal_buck_dc(
     vin: float,
     parameters: BoostParameters,
     *,
-    loss_parameters: "LossParameters | None" = None,
+    loss_parameters: LossParameters | None = None,
 ) -> BoostOperatingPoint:
     return _ideal_stage_dc(
         vin,
@@ -408,7 +408,7 @@ def solve_ideal_sepic_dc(
     vin: float,
     parameters: BoostParameters,
     *,
-    loss_parameters: "LossParameters | None" = None,
+    loss_parameters: LossParameters | None = None,
 ) -> BoostOperatingPoint:
     return _ideal_stage_dc(
         vin,
@@ -430,7 +430,7 @@ def solve_ideal_flyback_dc(
     vin: float,
     parameters: FlybackParameters,
     *,
-    loss_parameters: "LossParameters | None" = None,
+    loss_parameters: LossParameters | None = None,
 ) -> BoostOperatingPoint:
     if parameters.turns_ratio <= 0:
         raise ValueError("flyback turns_ratio must be positive")
@@ -603,6 +603,7 @@ class BoostParameterOptimizer:
                 nominal_iout=iout,
                 dc_solver=solve_ideal_boost_dc,
                 loss_parameters=loss_parameters,
+                duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
             ),
         )
 
@@ -644,6 +645,7 @@ class BuckParameterOptimizer:
                 nominal_iout=iout,
                 dc_solver=solve_ideal_buck_dc,
                 loss_parameters=_loss_model_for(ir),
+                duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
             ),
         )
 
@@ -683,6 +685,7 @@ class SepicParameterOptimizer:
                 nominal_iout=iout,
                 dc_solver=solve_ideal_sepic_dc,
                 loss_parameters=_loss_model_for(ir),
+                duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
             ),
         )
 
@@ -793,6 +796,7 @@ class FlybackParameterOptimizer:
                 nominal_iout=iout,
                 dc_solver=solve_ideal_flyback_dc,
                 loss_parameters=loss_parameters,
+                duty_schedule=_duty_schedule_for(ir, params, vout=vout, iout=iout),
             ),
         )
 
@@ -1035,7 +1039,7 @@ def _stage_efficiency_objective(
     return objective
 
 
-def _loss_model_for(ir: UnifiedIR) -> "LossParameters | None":
+def _loss_model_for(ir: UnifiedIR) -> LossParameters | None:
     """Read ``optimization.loss_model``; absent or disabled means lossless."""
 
     options = ir.optimization.get("loss_model", {}) or {}
@@ -1055,7 +1059,7 @@ _LOSS_MODEL_MIN_FREQUENCY_HZ = 50e3
 def _loss_aware_frequency_bounds(
     bounds: list[tuple[float, float]],
     *,
-    loss_parameters: "LossParameters | None",
+    loss_parameters: LossParameters | None,
 ) -> list[tuple[float, float]]:
     if loss_parameters is None:
         return bounds
@@ -1068,10 +1072,92 @@ def _loss_aware_frequency_bounds(
     return updated
 
 
-def _envelope_for(ir: UnifiedIR) -> "OperatingEnvelope | None":
+def _envelope_for(ir: UnifiedIR) -> OperatingEnvelope | None:
     """Rebuild the declared operating envelope from the IR, if any."""
 
     return OperatingEnvelope.from_dict(ir.operating_envelope)
+
+
+#: The duty range a real controller can act over.  Below it there is no
+#: resolution, above it there is no off-time to reset the magnetics.  Kept in
+#: step with ``PowerStageModel.duty_limits``.
+_DUTY_BAND: tuple[float, float] = (0.05, 0.95)
+
+
+def _duty_schedule_for(
+    ir: UnifiedIR,
+    design: Any,
+    *,
+    vout: float,
+    iout: float,
+) -> DutySchedule | None:
+    """Compute the per-corner duty a controller would need, when one is declared."""
+
+    envelope = _envelope_for(ir)
+    if envelope is None or envelope.is_degenerate:
+        return None
+    return _achievable_duty_schedule(
+        design,
+        nominal_vout=vout,
+        nominal_iout=iout,
+        dc_solver=None,
+        loss_parameters=None,
+        corners=enumerate_corners(envelope),
+        duty_limits=_DUTY_BAND,
+    )
+
+
+def _achievable_duty_schedule(
+    design: Any,
+    *,
+    nominal_vout: float,
+    nominal_iout: float,
+    dc_solver,
+    loss_parameters: LossParameters | None,
+    corners: tuple[OperatingCorner, ...],
+    duty_limits: tuple[float, float],
+) -> DutySchedule | None:
+    """What duty cycle each corner would need to hold the target rail.
+
+    This is the control authority the topology has, stated separately from
+    whether it is exercised.  The stored design keeps one fixed duty, so it
+    cannot hold the rail by itself; but if every corner's *required* duty is
+    inside the usable band, then a controller that schedules duty against the
+    input can hold the rail, and the design is realisable.
+
+    It proves feasibility and says nothing about stability: whether a loop can
+    actually be compensated needs a stability analysis this project does not
+    have, and the returned record states that explicitly.
+    """
+
+    vout = float(nominal_vout)
+    ratio = float(getattr(design, "turns_ratio", 1.0))
+    low, high = duty_limits
+    entries: list[dict[str, Any]] = []
+    for corner in corners:
+        vin = float(corner.input_voltage_v)
+        # vout = ratio * vin * d / (1 - d)  ->  d = vout / (ratio * vin + vout)
+        denominator = ratio * vin + vout
+        if denominator == 0.0:
+            return None
+        duty = vout / denominator
+        entries.append(
+            {
+                "corner_id": corner.corner_id,
+                "input_voltage_v": vin,
+                "load_fraction": corner.load_fraction,
+                "required_duty": duty,
+                "inside_usable_band": bool(low <= duty <= high),
+                "headroom_to_upper": float(high - duty),
+                "headroom_to_lower": float(duty - low),
+            }
+        )
+    _ = (nominal_iout, dc_solver, loss_parameters)  # load does not move the ratio
+    return DutySchedule(
+        entries=tuple(entries),
+        usable_band=(low, high),
+        control_effort=(min(e["required_duty"] for e in entries), max(e["required_duty"] for e in entries)),
+    )
 
 
 def _stage_envelope_analysis(
@@ -1081,8 +1167,9 @@ def _stage_envelope_analysis(
     nominal_vout: float,
     nominal_iout: float,
     dc_solver,
-    loss_parameters: "LossParameters | None",
-) -> "WorstCaseSummary | None":
+    loss_parameters: LossParameters | None,
+    duty_schedule: DutySchedule | None = None,
+) -> WorstCaseSummary | None:
     """Evaluate one chosen design at every corner of its declared envelope.
 
     The design keeps its component values and its *nominal* duty cycle; only the
@@ -1091,7 +1178,10 @@ def _stage_envelope_analysis(
     line becomes visible instead of being averaged away.
 
     Re-solving the duty cycle per corner would describe a different (adaptive)
-    design, so it is deliberately not done: the point is to stress one build.
+    design, so it is deliberately not done here: the point is to stress one
+    build.  The duty a controller *would* need is reported separately by
+    :func:`_achievable_duty_schedule`, so feasibility and regulation stay
+    distinct claims.
 
     Load is treated as a constant-current demand scaled by the corner's load
     fraction, matching how a target declares ``output_current_a``.  The
@@ -1109,7 +1199,7 @@ def _stage_envelope_analysis(
     switching_frequency_hz = float(design.switching_frequency_hz)
     turns_ratio = float(getattr(design, "turns_ratio", 1.0))
 
-    def evaluate(corner: "OperatingCorner") -> dict[str, float]:
+    def evaluate(corner: OperatingCorner) -> dict[str, float]:
         vin = corner.input_voltage_v
         iout = nominal_iout * corner.load_fraction
         load_ohm = nominal_vout / iout
@@ -1141,6 +1231,7 @@ def _stage_envelope_analysis(
         evaluate,
         target_output_voltage_v=nominal_vout,
         tolerance_fraction=_output_tolerance_fraction(ir),
+        duty_schedule=duty_schedule,
     )
 
 
@@ -1190,7 +1281,7 @@ def _optimize_four_parameter_converter(
     family: str,
     *,
     exact_duty: Callable[[float, float], float] | None = None,
-    loss_parameters: "LossParameters | None" = None,
+    loss_parameters: LossParameters | None = None,
     design_rail_v: float | None = None,
 ):
     load = vout / iout

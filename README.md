@@ -309,6 +309,19 @@ sized against a range and judged on real efficiency instead of an idealised 1.0:
   worst deviation symmetric in ratio terms.
 - **`regulates` is `null` when no target is given**, never `true`. "Not checked"
   is never reported as "passed".
+- **`duty_schedule` separates two different claims.** A design stores one fixed
+  duty cycle, so it cannot hold its output across an input range; `regulates`
+  reports that honestly. `duty_schedule.all_reachable` answers the different
+  question of whether the *topology* could, by listing the duty each corner would
+  need and whether it is inside the usable band. On a 24-48 V input the required
+  duty spans about 0.68-0.81, so the conversion is possible everywhere -- what is
+  missing is a controller, not feasibility.
+  `duty_schedule.justifies_stability_claim` is always `false` and is written into
+  the artifact: duty reachability says nothing about whether a loop can be
+  compensated, which needs a stability analysis this project does not have.
+
+Nothing here claims the export has been verified by KiCad or ngspice; neither is
+installed in this environment.
 
 Omitting both blocks reproduces the previous behaviour byte for byte:
 `operating_envelope` and `worst_case` are `null`.

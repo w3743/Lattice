@@ -195,6 +195,77 @@ def enumerate_corners(envelope: OperatingEnvelope) -> tuple[OperatingCorner, ...
 
 
 @dataclass(frozen=True)
+class DutySchedule:
+    """The duty cycle each corner needs to hold the target rail.
+
+    This is the topology's *control authority*, reported separately from whether
+    the built design exercises it.  A design with one fixed duty cannot hold a
+    rail across a range; if every required duty is inside the usable band, then a
+    controller that schedules duty against the input could, and the design is
+    realisable.
+
+    It is deliberately **not** a stability claim.  Whether a loop can be
+    compensated -- gain and phase margin, crossover, transient recovery -- needs
+    an analysis this project does not have, and ``justifies_stability_claim``
+    says so in the record rather than leaving it to the reader.
+    """
+
+    entries: tuple[Mapping[str, Any], ...]
+    usable_band: tuple[float, float]
+    control_effort: tuple[float, float]
+    #: Always false today.  Present so a report cannot be read as claiming a
+    #: compensated loop, and so the field has to be changed deliberately.
+    justifies_stability_claim: bool = False
+    extensions: Mapping[str, Any] = field(default_factory=dict)
+
+    @property
+    def all_reachable(self) -> bool:
+        """Whether every corner's required duty lies inside the usable band.
+
+        This is the feasibility result: the conversion is possible everywhere in
+        the envelope, so the requirement is not asking for something the topology
+        cannot deliver.
+        """
+
+        return bool(self.entries) and all(
+            bool(dict(entry)["inside_usable_band"]) for entry in self.entries
+        )
+
+    @property
+    def spread(self) -> float:
+        """How much duty range the controller must cover."""
+
+        return float(self.control_effort[1] - self.control_effort[0])
+
+    @property
+    def limiting_corner(self) -> str | None:
+        """The corner with the least headroom, i.e. the binding one."""
+
+        scored = [
+            (
+                min(float(dict(e)["headroom_to_upper"]), float(dict(e)["headroom_to_lower"])),
+                str(dict(e)["corner_id"]),
+            )
+            for e in self.entries
+        ]
+        if not scored:
+            return None
+        return min(scored)[1]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "all_reachable": self.all_reachable,
+            "usable_band": {"lower": self.usable_band[0], "upper": self.usable_band[1]},
+            "control_effort": {"min_duty": self.control_effort[0], "max_duty": self.control_effort[1]},
+            "spread": self.spread,
+            "limiting_corner": self.limiting_corner,
+            "justifies_stability_claim": self.justifies_stability_claim,
+            "entries": [dict(entry) for entry in self.entries],
+            "extensions": dict(self.extensions),
+        }
+
+
+@dataclass(frozen=True)
 class WorstCaseSummary:
     """Extremes across corners, each attributable to the corner that caused it."""
 
@@ -220,6 +291,9 @@ class WorstCaseSummary:
     target_output_voltage_v: float | None = None
     tolerance_fraction: float | None = None
     regulation_violations: tuple[Mapping[str, Any], ...] = ()
+    #: What duty each corner would need to hold the rail.  ``None`` when no
+    #: schedule was computed, so the record never implies one it did not check.
+    duty_schedule: DutySchedule | None = None
     corner_results: tuple[Mapping[str, Any], ...] = ()
     schema: str = "circuit_ai.worst_case_summary"
     schema_version: int = 1
@@ -286,6 +360,9 @@ class WorstCaseSummary:
                 "regulates": self.regulates_output,
                 "violations": [dict(item) for item in self.regulation_violations],
             },
+            "duty_schedule": (
+                self.duty_schedule.as_dict() if self.duty_schedule is not None else None
+            ),
             "corners": [dict(item) for item in self.corner_results],
             "extensions": dict(self.extensions),
         }
@@ -297,6 +374,7 @@ def worst_case_summary(
     *,
     target_output_voltage_v: float | None = None,
     tolerance_fraction: float | None = None,
+    duty_schedule: DutySchedule | None = None,
 ) -> WorstCaseSummary:
     """Evaluate every corner and reduce the results to design-relevant extremes.
 
@@ -394,6 +472,7 @@ def worst_case_summary(
         target_output_voltage_v=target_output_voltage_v,
         tolerance_fraction=tolerance_fraction,
         regulation_violations=tuple(violations),
+        duty_schedule=duty_schedule,
         corner_results=tuple(rows),
     )
 
