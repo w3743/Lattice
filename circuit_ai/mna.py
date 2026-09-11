@@ -92,6 +92,42 @@ class MNASolutionBatch:
         return self.values[:, self.controlled_source_index[source_name]]
 
 
+def linear_topology_signature(circuit: LinearCircuit) -> tuple[tuple[str, ...], ...]:
+    """The identity a compiled MNA plan is only valid for.
+
+    Element and source names are part of the signature, so two circuits that
+    differ only in component naming do NOT share a plan.  Callers that cache
+    plans must key on this value (or include it), because keying on a purely
+    structural graph hash is not sufficient: such hashes deliberately ignore
+    instance ids and reference designators.
+    """
+
+    signature: list[tuple[str, ...]] = [
+        ("element", item.name, item.kind.upper(), item.n1, item.n2)
+        for item in circuit.elements
+    ]
+    signature.extend(
+        ("voltage_source", item.name, item.n_plus, item.n_minus)
+        for item in circuit.voltage_sources
+    )
+    signature.extend(
+        ("current_source", item.name, item.n_plus, item.n_minus)
+        for item in circuit.current_sources
+    )
+    signature.extend(
+        (
+            "vcvs",
+            item.name,
+            item.n_plus,
+            item.n_minus,
+            item.control_plus,
+            item.control_minus,
+        )
+        for item in circuit.controlled_voltage_sources
+    )
+    return tuple(signature)
+
+
 @dataclass(frozen=True)
 class CompiledLinearMNA:
     """Reusable topology/stamp plan for a linear MNA circuit.
@@ -119,29 +155,6 @@ class CompiledLinearMNA:
             source.name: len(nodes) + len(circuit.voltage_sources) + idx
             for idx, source in enumerate(circuit.controlled_voltage_sources)
         }
-        signature: list[tuple[str, ...]] = [
-            ("element", item.name, item.kind.upper(), item.n1, item.n2)
-            for item in circuit.elements
-        ]
-        signature.extend(
-            ("voltage_source", item.name, item.n_plus, item.n_minus)
-            for item in circuit.voltage_sources
-        )
-        signature.extend(
-            ("current_source", item.name, item.n_plus, item.n_minus)
-            for item in circuit.current_sources
-        )
-        signature.extend(
-            (
-                "vcvs",
-                item.name,
-                item.n_plus,
-                item.n_minus,
-                item.control_plus,
-                item.control_minus,
-            )
-            for item in circuit.controlled_voltage_sources
-        )
         return cls(
             node_index=node_index,
             source_index=source_index,
@@ -149,7 +162,7 @@ class CompiledLinearMNA:
             size=len(nodes)
             + len(circuit.voltage_sources)
             + len(circuit.controlled_voltage_sources),
-            topology_signature=tuple(signature),
+            topology_signature=linear_topology_signature(circuit),
         )
 
     def solve_ac(
@@ -219,7 +232,7 @@ class CompiledLinearMNA:
         )
 
     def _signature(self, circuit: LinearCircuit) -> tuple[tuple[str, ...], ...]:
-        return CompiledLinearMNA.compile(circuit).topology_signature
+        return linear_topology_signature(circuit)
 
 
 def admittance(element: LinearElement, s: complex) -> complex:

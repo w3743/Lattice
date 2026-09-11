@@ -10,7 +10,7 @@ import numpy as np
 
 from ..analysis import AnalysisRequest, LinearACAnalyzer
 from ..graph import CircuitGraph, ModelRef, graph_parameter_defaults, graph_to_linear_circuit
-from ..mna import CompiledLinearMNA, LinearCircuit
+from ..mna import CompiledLinearMNA, LinearCircuit, linear_topology_signature
 from .contracts import (
     Diagnostic,
     Quantity,
@@ -63,33 +63,19 @@ class LinearMNASimulatorBackend:
     def __init__(self, analyzer: LinearACAnalyzer | None = None) -> None:
         self._analyzer = analyzer or LinearACAnalyzer()
         self._compiled: dict[str, LinearCompiledModel] = {}
-        self._plans: dict[tuple[str, str, str, tuple[tuple[str, str], ...]], CompiledLinearMNA] = {}
+        self._plans: dict[tuple[tuple[str, ...], ...], CompiledLinearMNA] = {}
 
     def compile(self, graph: CircuitGraph) -> LinearCompiledModel:
         graph.require_valid()
-        cached = self._compiled.get(graph.graph_hash)
-        if cached is not None:
-            return cached
         model_kinds = {component.model.kind for component in graph.components}
         unsupported = model_kinds - self.capabilities.model_kinds
         if unsupported:
             raise UnsupportedModelError(
                 f"linear_mna does not support models {sorted(unsupported)}"
             )
-        circuit = graph_to_linear_circuit(graph, graph_parameter_defaults(graph))
-        plan_key = _linear_plan_cache_key(graph, self.capabilities)
-        plan = self._plans.get(plan_key)
-        if plan is None:
-            plan = CompiledLinearMNA.compile(circuit)
-            self._plans[plan_key] = plan
-        compiled = LinearCompiledModel(
-            graph=graph,
-            circuit=circuit,
-            model_manifest=_model_manifest(graph),
-            mna_plan=plan,
+        return _compile_linear_model(
+            graph, self.capabilities, self._compiled, self._plans
         )
-        self._compiled[graph.graph_hash] = compiled
-        return compiled
 
     def simulate(
         self,
@@ -220,7 +206,7 @@ class TorchMNASimulatorBackend:
 
     def __init__(self) -> None:
         self._compiled: dict[str, LinearCompiledModel] = {}
-        self._plans: dict[tuple[str, str, str, tuple[tuple[str, str], ...]], CompiledLinearMNA] = {}
+        self._plans: dict[tuple[tuple[str, ...], ...], CompiledLinearMNA] = {}
 
     def available(self) -> tuple[bool, str]:
         try:
@@ -231,29 +217,15 @@ class TorchMNASimulatorBackend:
 
     def compile(self, graph: CircuitGraph) -> LinearCompiledModel:
         graph.require_valid()
-        cached = self._compiled.get(graph.graph_hash)
-        if cached is not None:
-            return cached
         model_kinds = {component.model.kind for component in graph.components}
         unsupported = model_kinds - self.capabilities.model_kinds
         if unsupported:
             raise UnsupportedModelError(
                 f"torch_mna does not support models {sorted(unsupported)}"
             )
-        circuit = graph_to_linear_circuit(graph, graph_parameter_defaults(graph))
-        plan_key = _linear_plan_cache_key(graph, self.capabilities)
-        plan = self._plans.get(plan_key)
-        if plan is None:
-            plan = CompiledLinearMNA.compile(circuit)
-            self._plans[plan_key] = plan
-        compiled = LinearCompiledModel(
-            graph=graph,
-            circuit=circuit,
-            model_manifest=_model_manifest(graph),
-            mna_plan=plan,
+        return _compile_linear_model(
+            graph, self.capabilities, self._compiled, self._plans
         )
-        self._compiled[graph.graph_hash] = compiled
-        return compiled
 
     def simulate(
         self,
@@ -657,22 +629,55 @@ def _power_outputs(request, input_values, operating_points):
     return {}, waveforms
 
 
-def _linear_plan_cache_key(
+def _compiled_cache_hit(
+    cached: LinearCompiledModel | None,
+    graph: CircuitGraph,
+) -> bool:
+    """Whether *cached* really describes *graph*.
+
+    ``graph_hash`` is a structural fingerprint and deliberately ignores
+    instance ids and reference designators, so two different circuits can share
+    it.  A cached model is only reusable when its own graph is identity-equal
+    to the incoming one.
+    """
+
+    if cached is None:
+        return False
+    cached_graph = getattr(cached, "graph", None)
+    return cached_graph is graph or cached_graph == graph
+
+
+def _compile_linear_model(
     graph: CircuitGraph,
     capabilities: BackendCapabilities,
-) -> tuple[str, str, str, tuple[tuple[str, str], ...]]:
-    model_checksum = tuple(
-        sorted(
-            (component.model.model_id, component.model.version)
-            for component in graph.components
-        )
+    compiled: dict[str, LinearCompiledModel],
+    plans: dict[tuple[tuple[str, ...], ...], CompiledLinearMNA],
+) -> LinearCompiledModel:
+    """Compile *graph*, reusing a cached model or plan when truly valid.
+
+    The plan cache is keyed on the MNA topology signature -- the very value
+    ``CompiledLinearMNA.solve_ac`` validates against -- because the structural
+    graph hash does not capture component naming and would hand one circuit the
+    plan built for another.
+    """
+
+    cached = compiled.get(graph.graph_hash)
+    if _compiled_cache_hit(cached, graph):
+        return cached
+    circuit = graph_to_linear_circuit(graph, graph_parameter_defaults(graph))
+    signature = linear_topology_signature(circuit)
+    plan = plans.get(signature)
+    if plan is None:
+        plan = CompiledLinearMNA.compile(circuit)
+        plans[signature] = plan
+    model = LinearCompiledModel(
+        graph=graph,
+        circuit=circuit,
+        model_manifest=_model_manifest(graph),
+        mna_plan=plan,
     )
-    return (
-        graph.topology_hash,
-        capabilities.backend_id,
-        capabilities.backend_version,
-        model_checksum,
-    )
+    compiled[graph.graph_hash] = model
+    return model
 
 
 def _model_manifest(graph: CircuitGraph) -> tuple[ModelRef, ...]:
