@@ -376,6 +376,16 @@ def design_from_pbdl(
                 "fidelity_comparisons": [
                     item.as_dict() for item in selected.fidelity_comparisons
                 ],
+                "operating_envelope": (
+                    dict(ir.operating_envelope)
+                    if ir.operating_envelope is not None
+                    else None
+                ),
+                "worst_case": (
+                    optimization.envelope_analysis.as_dict()
+                    if getattr(optimization, "envelope_analysis", None) is not None
+                    else None
+                ),
                 "candidates": [item.as_dict() for item in evaluations],
                 "capabilities": {
                     "selected": [item.as_dict() for item in selected_resolutions],

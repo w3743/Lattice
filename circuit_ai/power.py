@@ -20,9 +20,14 @@ from .optimization import (
     VariableKind,
     VariableScale,
 )
+from .operating_envelope import (
+    OperatingCorner,
+    OperatingEnvelope,
+    WorstCaseSummary,
+    enumerate_corners,
+    worst_case_summary,
+)
 from .power_loss import (
-    DEFAULT_LOSS_PARAMETERS,
-    LossBreakdown,
     LossParameters,
     default_switch_path_duty,
     evaluate_loss_model,
@@ -97,6 +102,10 @@ class BoostOptimizationResult:
     optimizer_message: str
     objective: float
     optimization_run: OptimizationRunResult | None = None
+    #: Worst-case behaviour across the declared operating envelope.  ``None``
+    #: when the spec declares no envelope, so single-point artifacts are
+    #: unchanged.
+    envelope_analysis: "WorstCaseSummary | None" = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +137,7 @@ class FlybackOptimizationResult:
     optimizer_message: str
     objective: float
     optimization_run: OptimizationRunResult | None = None
+    envelope_analysis: "WorstCaseSummary | None" = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +149,7 @@ class BuckOptimizationResult:
     optimizer_message: str
     objective: float
     optimization_run: OptimizationRunResult | None = None
+    envelope_analysis: "WorstCaseSummary | None" = None
 
 
 @dataclass(frozen=True)
@@ -150,6 +161,7 @@ class SepicOptimizationResult:
     optimizer_message: str
     objective: float
     optimization_run: OptimizationRunResult | None = None
+    envelope_analysis: "WorstCaseSummary | None" = None
 
 
 # Unit and scale of every decision variable shared by the ideal power stages.
@@ -582,6 +594,14 @@ class BoostParameterOptimizer:
             optimizer_message=run.message,
             objective=float(run.objective_values["power.objective"]),
             optimization_run=run,
+            envelope_analysis=_stage_envelope_analysis(
+                ir,
+                params,
+                nominal_vout=vout,
+                nominal_iout=iout,
+                dc_solver=solve_ideal_boost_dc,
+                loss_parameters=loss_parameters,
+            ),
         )
 
 
@@ -612,6 +632,14 @@ class BuckParameterOptimizer:
             optimizer_message=result.message,
             objective=float(result.objective_values["power.objective"]),
             optimization_run=result,
+            envelope_analysis=_stage_envelope_analysis(
+                ir,
+                params,
+                nominal_vout=vout,
+                nominal_iout=iout,
+                dc_solver=solve_ideal_buck_dc,
+                loss_parameters=_loss_model_for(ir),
+            ),
         )
 
 
@@ -640,6 +668,14 @@ class SepicParameterOptimizer:
             optimizer_message=result.message,
             objective=float(result.objective_values["power.objective"]),
             optimization_run=result,
+            envelope_analysis=_stage_envelope_analysis(
+                ir,
+                params,
+                nominal_vout=vout,
+                nominal_iout=iout,
+                dc_solver=solve_ideal_sepic_dc,
+                loss_parameters=_loss_model_for(ir),
+            ),
         )
 
 
@@ -734,6 +770,14 @@ class FlybackParameterOptimizer:
             optimizer_message=run.message,
             objective=float(run.objective_values["power.objective"]),
             optimization_run=run,
+            envelope_analysis=_stage_envelope_analysis(
+                ir,
+                params,
+                nominal_vout=vout,
+                nominal_iout=iout,
+                dc_solver=solve_ideal_flyback_dc,
+                loss_parameters=loss_parameters,
+            ),
         )
 
 
@@ -890,6 +934,97 @@ def _loss_aware_frequency_bounds(
     updated = list(bounds)
     updated[3] = (floor, upper)
     return updated
+
+
+def _envelope_for(ir: UnifiedIR) -> "OperatingEnvelope | None":
+    """Rebuild the declared operating envelope from the IR, if any."""
+
+    return OperatingEnvelope.from_dict(ir.operating_envelope)
+
+
+def _stage_envelope_analysis(
+    ir: UnifiedIR,
+    design: Any,
+    *,
+    nominal_vout: float,
+    nominal_iout: float,
+    dc_solver,
+    loss_parameters: "LossParameters | None",
+) -> "WorstCaseSummary | None":
+    """Evaluate one chosen design at every corner of its declared envelope.
+
+    The design keeps its component values and its *nominal* duty cycle; only the
+    operating point moves.  Efficiency is recomputed at each corner from the loss
+    model, so a design that looks good at nominal but poor at full load or at low
+    line becomes visible instead of being averaged away.
+
+    Re-solving the duty cycle per corner would describe a different (adaptive)
+    design, so it is deliberately not done: the point is to stress one build.
+
+    Load is treated as a constant-current demand scaled by the corner's load
+    fraction, matching how a target declares ``output_current_a``.  The
+    resulting output voltage therefore moves with the conversion ratio, which is
+    exactly what makes the minimum-input corner the informative one.
+    """
+
+    envelope = _envelope_for(ir)
+    if envelope is None or envelope.is_degenerate:
+        return None
+
+    duty = float(design.duty_cycle)
+    inductance_h = float(design.inductance_h)
+    capacitance_f = float(design.capacitance_f)
+    switching_frequency_hz = float(design.switching_frequency_hz)
+    turns_ratio = float(getattr(design, "turns_ratio", 1.0))
+
+    def evaluate(corner: "OperatingCorner") -> dict[str, float]:
+        vin = corner.input_voltage_v
+        iout = nominal_iout * corner.load_fraction
+        load_ohm = nominal_vout / iout
+        params = _flyback_parameters(duty, inductance_h, capacitance_f, switching_frequency_hz, load_ohm, turns_ratio)
+        dc = (
+            dc_solver(vin, params, loss_parameters=loss_parameters)
+            if loss_parameters is not None
+            else dc_solver(vin, params)
+        )
+        loss_w = (
+            dc.output_power_w * (1.0 / dc.efficiency - 1.0)
+            if dc.efficiency > 0.0
+            else 0.0
+        )
+        return {
+            "efficiency": dc.efficiency,
+            "loss_w": loss_w,
+            "input_current_a": dc.input_current_a,
+            "duty": duty,
+            "predicted_ripple_mv": dc.predicted_ripple_mv,
+            "output_voltage_v": dc.output_voltage_v,
+            "output_current_a": dc.output_current_a,
+            "input_voltage_v": vin,
+            "load_fraction": corner.load_fraction,
+        }
+
+    return worst_case_summary(enumerate_corners(envelope), evaluate)
+
+
+def _flyback_parameters(
+    duty_cycle: float,
+    inductance_h: float,
+    capacitance_f: float,
+    switching_frequency_hz: float,
+    load_ohm: float,
+    turns_ratio: float,
+) -> FlybackParameters:
+    """The superset parameter record; the non-isolated solvers ignore turns_ratio."""
+
+    return FlybackParameters(
+        duty_cycle,
+        inductance_h,
+        capacitance_f,
+        switching_frequency_hz,
+        load_ohm,
+        turns_ratio,
+    )
 
 
 def _optimize_four_parameter_converter(

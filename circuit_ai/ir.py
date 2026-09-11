@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .pbdl_boundary import load_pbdl_dict
+from .operating_envelope import envelope_from_mapping
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,10 @@ class UnifiedIR:
     optimization: dict[str, Any]
     components: tuple[IRComponent, ...] = ()
     functions: tuple[dict[str, Any], ...] = ()
+    #: Input-voltage and load range the design must survive, when the spec
+    #: declares one.  Absent means "design at the single operating point",
+    #: which keeps every existing spec and artifact byte-identical.
+    operating_envelope: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -111,6 +116,7 @@ class UnifiedIR:
             optimization=self.optimization,
             components=components,
             functions=self.functions,
+            operating_envelope=self.operating_envelope,
             metadata=self.metadata,
         )
 
@@ -127,6 +133,11 @@ class UnifiedIR:
             "optimization": dict(self.optimization),
             "components": [component.as_dict() for component in self.components],
             "functions": [dict(item) for item in self.functions],
+            "operating_envelope": (
+                dict(self.operating_envelope)
+                if self.operating_envelope is not None
+                else None
+            ),
             "metadata": dict(self.metadata),
         }
 
@@ -150,6 +161,10 @@ def pbdl_to_ir(data: dict[str, Any]) -> UnifiedIR:
         )
     analyses = tuple(analysis.as_dict() for analysis in spec.analyses)
     targets = tuple(target.as_dict() for target in spec.targets)
+    # The envelope's nominal rail defaults to the target's declared input
+    # voltage, so a spec only has to state the ranges it tolerates.
+    fallback_nominal = targets[0].get("input_voltage_v") if targets else None
+    envelope = envelope_from_mapping(data, fallback_input_voltage_v=fallback_nominal)
     return UnifiedIR(
         name=spec.name,
         description=spec.description,
@@ -161,5 +176,6 @@ def pbdl_to_ir(data: dict[str, Any]) -> UnifiedIR:
         operating_point=spec.operating_point.as_dict(),
         optimization=dict(spec.optimization),
         functions=tuple(item.as_dict() for item in spec.functions),
+        operating_envelope=envelope.as_dict() if envelope is not None else None,
         metadata={"source": "PBDL"},
     )
