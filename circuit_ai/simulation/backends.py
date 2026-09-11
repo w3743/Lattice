@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
 from ..analysis import AnalysisRequest, LinearACAnalyzer
-from ..graph import CircuitGraph, ModelRef, graph_parameter_defaults, graph_to_linear_circuit
+from ..graph import (
+    CircuitGraph,
+    ModelRef,
+    graph_parameter_defaults,
+    graph_to_linear_circuit,
+)
 from ..mna import CompiledLinearMNA, LinearCircuit, linear_topology_signature
 from .contracts import (
     Diagnostic,
@@ -422,7 +428,11 @@ class AnalyticPowerSimulatorBackend:
         try:
             parameters = self._parameters(request)
             input_values = _power_input_values(request)
-            operating_points = tuple(self.dc_solver(value, parameters) for value in input_values)
+            loss_parameters = _power_loss_parameters(request)
+            operating_points = tuple(
+                _solve_power_stage(self.dc_solver, value, parameters, loss_parameters)
+                for value in input_values
+            )
             scalars, waveforms = _power_outputs(request, input_values, operating_points)
         except (TypeError, ValueError, ZeroDivisionError) as exc:
             return self._error_result(
@@ -568,6 +578,28 @@ def _port_nodes(graph: CircuitGraph, port_id: str) -> tuple[str, str]:
     if positive is None or reference is None:
         raise UnsupportedModelError(f"port {port_id!r} is not a two-terminal electrical port")
     return positive, reference
+
+
+def _power_loss_parameters(request: SimulationRequest) -> Any:
+    """Loss coefficients the request asks the stage to be evaluated with."""
+
+    from ..power_request import loss_parameters_from_conditions
+
+    return loss_parameters_from_conditions(request.conditions)
+
+
+def _solve_power_stage(dc_solver, vin: float, parameters: Any, loss_parameters: Any) -> Any:
+    """Solve one stage, applying loss coefficients only when the request carries them.
+
+    The registered family solvers bind a two-argument callable, so the extra
+    keyword is offered only when there is something to pass.  This keeps the
+    lossless path byte-identical while letting a loss-aware request produce
+    loss-aware *evidence* rather than only a loss-aware optimizer result.
+    """
+
+    if loss_parameters is None:
+        return dc_solver(vin, parameters)
+    return dc_solver(vin, parameters, loss_parameters=loss_parameters)
 
 
 def _power_input_values(request: SimulationRequest) -> tuple[float, ...]:

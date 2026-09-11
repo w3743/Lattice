@@ -871,11 +871,28 @@ class PowerStageModel:
         return f"simulation.power.{self.solver_id}"
 
 
-def _stage_dc_solver(adapter, solver) -> Callable[[float, PowerStageParameters], BoostOperatingPoint]:
-    """Bind a unified record to one family equation set through its adapter."""
+def _stage_dc_solver(adapter, solver) -> Callable[..., BoostOperatingPoint]:
+    """Bind a unified record to one family equation set through its adapter.
 
-    def solve(vin: float, parameters: PowerStageParameters) -> BoostOperatingPoint:
-        return solver(vin, adapter(parameters.as_dict(), parameters.load_ohm))
+    The returned callable accepts an optional ``loss_parameters`` keyword, which
+    the analytic power backend passes only when the request carries loss
+    coefficients.  Without it the simulation *evidence* would report the
+    idealised ``efficiency == 1.0`` even for a loss-aware design, so an
+    efficiency requirement would be evaluated against a number the design does
+    not achieve.
+    """
+
+    def solve(
+        vin: float,
+        parameters: PowerStageParameters,
+        *,
+        loss_parameters: LossParameters | None = None,
+    ) -> BoostOperatingPoint:
+        return solver(
+            vin,
+            adapter(parameters.as_dict(), parameters.load_ohm),
+            loss_parameters=loss_parameters,
+        )
 
     return solve
 

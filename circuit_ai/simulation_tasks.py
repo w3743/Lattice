@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any
 
 from .constraints import (
     ConstraintEvaluator,
@@ -124,13 +125,23 @@ def simulation_tasks_from_ir(ir: UnifiedIR) -> tuple[SimulationTask, ...]:
             for key, value in analysis.items()
             if key not in {"kind", "source_port", "output_port", "response_port", "port"}
         }
+        conditions = dict(ir.operating_point)
+        # A loss model has to travel in the request, because a result is only
+        # reproducible from its own request.  It is added only when the spec
+        # enables one, so every existing spec's request hash, cache key and
+        # stored artifact are unchanged.
+        loss_options = ir.optimization.get("loss_model")
+        if isinstance(loss_options, Mapping) and bool(loss_options.get("enabled", False)):
+            from .power_request import POWER_LOSS_CONDITIONS_KEY
+
+            conditions[POWER_LOSS_CONDITIONS_KEY] = dict(loss_options)
         tasks.append(
             SimulationTask(
                 name=f"{ir.name}__{index + 1}_{kind}",
                 analysis_kind=kind,
                 source_port=source_port,
                 response_port=response_port,
-                conditions=dict(ir.operating_point),
+                conditions=conditions,
                 sweep=sweep,
                 metrics=metrics,
                 constraints=constraints,
