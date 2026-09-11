@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "circuit-ai-synth"
+name = "lattice"
 version = "0.1.0"
-description = "Port-behavior-driven circuit synthesis with verifiable circuit graphs."
+description = "From a circuit requirement to a verifiable schematic: unified circuit graphs, multi-fidelity simulation, and an auditable design evidence chain."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -44,6 +44,12 @@ all = [
 ]
 
 [project.scripts]
+lattice = "circuit_ai.cli:main"
+lattice-pbdl = "circuit_ai.pbdl_cli:main"
+# Pre-rename names kept as aliases so existing shell history and scripts keep
+# working. The import package is still `circuit_ai` and the serialised schema
+# ids are still `circuit_ai.*`; renaming those is a versioned-wire-contract
+# change and has not been made.
 circuit-ai = "circuit_ai.cli:main"
 pbdl-synth = "circuit_ai.pbdl_cli:main"
 

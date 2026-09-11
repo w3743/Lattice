@@ -1,11 +1,19 @@
-# Circuit AI Prototype
+# Lattice
 
-This repository is the first implementation step for an AI-assisted circuit
-synthesizer:
+**From a circuit requirement to a verifiable schematic.**
+
+Lattice takes a port/behaviour requirement plus an element library and produces
+a candidate circuit, an optimised parameter set, and an auditable evidence chain
+that records how each conclusion was reached:
 
 ```text
 port behavior + element library -> candidate circuits -> optimized SPICE netlist
 ```
+
+Two names are in play during the rename: **Lattice** is the project, while the
+import package remains `circuit_ai` and serialised schema ids remain
+`circuit_ai.*`. Those are versioned wire contracts, so they are only renamed
+together with a migration.
 
 PBDL is the single public specification boundary. The browser workbench and
 the command-line synthesizer normalize input into the PBDL CircuitSpec
@@ -17,6 +25,25 @@ The current MVP supports bounded linear frequency-domain graph search and ideal
 two-port DC power-stage search.  Standard circuits are retained as expert
 priors, but PBDL synthesis can also construct typed topology candidates and
 verify them with family-matched physics models.
+
+### What it can and cannot claim
+
+Being explicit here matters more than sounding capable:
+
+- **Supported now:** linear AC filters (R/C/L/VCVS) solved by internal MNA;
+  four ideal averaged DC power families (buck, boost, SEPIC, isolated flyback)
+  with an optional parameterised loss model; KiCad, SVG and SPICE export; a
+  complete evidence chain (`report.json`, `replay.jsonl`, `episode.jsonl`).
+- **Explicitly refused, not silently wrong:** noise, S-parameter, thermal,
+  impedance and stability requirements currently return a capability gap.
+- **Not verified by external tools:** `ngspice` and KiCad are not installed in
+  this environment, so every "verified" verdict is internal-model consistency,
+  not an external physics check. Exports are text-validated but have never been
+  opened by KiCad. Do not read them as tape-out ready.
+- **Not modelled:** magnetic core loss, semiconductor thermal behaviour,
+  electromagnetic interference, and control-loop stability. The loss model
+  reports `core_loss_modelled: false` rather than hiding the omission.
+
 
 ## Run
 

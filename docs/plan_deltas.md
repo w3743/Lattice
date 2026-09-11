@@ -47,7 +47,7 @@
 | **C4** | 章节编号断裂：`## 网页端全流程验收与错误报告` 未纳入 §1–§23 编号体系，但正文又把它当作强制验收要求 | `计划:2007`（无编号新章，紧接 §23 结尾 `计划:2006`） |
 | **C5** | §19.1“family 名称变化不得影响后端能力解析”与实现的 family 过滤冲突 | `计划:1866` vs `circuit_ai/capabilities/contracts.py:150`、`circuit_ai/capabilities/registry.py:125-126`、`circuit_ai/capabilities/builtins.py:24` |
 | **C6** | §7.3 规则 4 要求后端差异超门槛时标记 `model_disagreement` 并进入诊断队列；实现中只有 surrogate 集成分歧 | `计划:652-653` vs `grep -rn "model_disagreement" circuit_ai/` 无命中，仅 `circuit_ai/surrogate.py:314` 的 ensemble disagreement。**已解决（2026-09-11）**：契约实现于 `circuit_ai/optimization/fidelity.py`，接入 AC 真值门与电源路径，见 §9 |
-| **C7** | 文档声明路径为旧仓库名，与实际目录不符 | `计划:4` `适用仓库：E:/Pioneer/ai电路` vs 实际 `E:/Pioneer/自动电路设计研究` |
+| **C7** | 文档声明路径为旧仓库名，与实际目录不符 | `计划:4` `适用仓库：E:/Pioneer/ai电路` vs 实际 `E:/Pioneer/自动电路设计研究`（项目英文名已定为 **Lattice**，远端 `github.com/w3743/Lattice`；导入包名仍为 `circuit_ai`） |
 
 ---
 
