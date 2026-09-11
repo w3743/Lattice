@@ -263,6 +263,83 @@ def test_ir_round_trips_the_envelope() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Regulation acceptance
+# ---------------------------------------------------------------------------
+
+
+def test_regulation_is_unchecked_rather_than_passed_when_no_target_is_given() -> None:
+    """'Not checked' must never be reported as 'passed'."""
+
+    envelope = OperatingEnvelope(nominal_input_voltage_v=36.0, min_input_voltage_v=24.0)
+    summary = worst_case_summary(enumerate_corners(envelope), _fake_evaluate)
+    assert summary.regulates_output is None
+    assert summary.regulation_violations == ()
+    assert summary.target_output_voltage_v is None
+    assert summary.as_dict()["output_voltage"]["regulates"] is None
+
+
+def test_regulation_flags_every_corner_outside_the_band() -> None:
+    envelope = OperatingEnvelope(
+        nominal_input_voltage_v=36.0, min_input_voltage_v=24.0, max_input_voltage_v=48.0
+    )
+    # _fake_evaluate delivers 5 V * vin / 36, so 24 V gives 3.33 V and 48 V
+    # gives 6.67 V around a 5 V target.
+    summary = worst_case_summary(
+        enumerate_corners(envelope),
+        _fake_evaluate,
+        target_output_voltage_v=5.0,
+        tolerance_fraction=0.05,
+    )
+    assert summary.regulates_output is False
+    flagged = {dict(item)["corner_id"] for item in summary.regulation_violations}
+    assert flagged == {"input_min__nominal", "input_max__nominal"}
+    for item in summary.regulation_violations:
+        row = dict(item)
+        assert row["allowed_min_v"] == pytest.approx(4.75)
+        assert row["allowed_max_v"] == pytest.approx(5.25)
+        assert not row["allowed_min_v"] <= row["delivered_v"] <= row["allowed_max_v"]
+    assert summary.as_dict()["output_voltage"]["regulates"] is False
+
+
+def test_regulation_passes_when_the_rail_holds_within_tolerance() -> None:
+    envelope = OperatingEnvelope(nominal_input_voltage_v=36.0, min_input_voltage_v=35.0)
+
+    def flat(corner: OperatingCorner) -> dict[str, float]:
+        result = _fake_evaluate(corner)
+        result["output_voltage_v"] = 5.0
+        return result
+
+    summary = worst_case_summary(
+        enumerate_corners(envelope),
+        flat,
+        target_output_voltage_v=5.0,
+        tolerance_fraction=0.05,
+    )
+    assert summary.regulates_output is True
+    assert summary.regulation_violations == ()
+
+
+def test_tolerance_must_be_a_fraction() -> None:
+    envelope = OperatingEnvelope(nominal_input_voltage_v=36.0, min_input_voltage_v=35.0)
+    corners = enumerate_corners(envelope)
+    with pytest.raises(ValueError):
+        worst_case_summary(
+            corners, _fake_evaluate, target_output_voltage_v=5.0, tolerance_fraction=1.5
+        )
+    with pytest.raises(ValueError):
+        worst_case_summary(
+            corners, _fake_evaluate, target_output_voltage_v=5.0, tolerance_fraction=-0.1
+        )
+    with pytest.raises(ValueError):
+        worst_case_summary(corners, _fake_evaluate, target_output_voltage_v=0.0, tolerance_fraction=0.05)
+    # A half-specified check is a mistake, not an unchecked one.
+    with pytest.raises(ValueError):
+        worst_case_summary(corners, _fake_evaluate, target_output_voltage_v=5.0)
+    with pytest.raises(ValueError):
+        worst_case_summary(corners, _fake_evaluate, tolerance_fraction=0.05)
+
+
+# ---------------------------------------------------------------------------
 # Opt-in wiring end to end
 # ---------------------------------------------------------------------------
 

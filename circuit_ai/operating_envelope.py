@@ -217,10 +217,28 @@ class WorstCaseSummary:
     output_voltage_max_v: float
     output_voltage_max_corner: str
     nominal_output_voltage_v: float
+    target_output_voltage_v: float | None = None
+    tolerance_fraction: float | None = None
+    regulation_violations: tuple[Mapping[str, Any], ...] = ()
     corner_results: tuple[Mapping[str, Any], ...] = ()
     schema: str = "circuit_ai.worst_case_summary"
     schema_version: int = 1
     extensions: Mapping[str, Any] = field(default_factory=dict)
+
+    @property
+    def regulates_output(self) -> bool | None:
+        """Whether every corner holds the target rail within tolerance.
+
+        ``None`` when no target was supplied, so "not checked" is never reported
+        as "passed".  A fixed-duty design with no feedback loop is expected to
+        fail this across a real input range, and that is the point of reporting
+        it: the requirement demands regulation the design method cannot yet
+        provide.
+        """
+
+        if self.target_output_voltage_v is None or self.tolerance_fraction is None:
+            return None
+        return not self.regulation_violations
 
     @property
     def output_voltage_spread_v(self) -> float:
@@ -263,6 +281,10 @@ class WorstCaseSummary:
                 "max": self.output_voltage_max_v,
                 "max_corner": self.output_voltage_max_corner,
                 "spread": self.output_voltage_spread_v,
+                "target": self.target_output_voltage_v,
+                "tolerance_fraction": self.tolerance_fraction,
+                "regulates": self.regulates_output,
+                "violations": [dict(item) for item in self.regulation_violations],
             },
             "corners": [dict(item) for item in self.corner_results],
             "extensions": dict(self.extensions),
@@ -272,14 +294,21 @@ class WorstCaseSummary:
 def worst_case_summary(
     corners: Iterable[OperatingCorner],
     evaluate: Callable[[OperatingCorner], Mapping[str, Any]],
+    *,
+    target_output_voltage_v: float | None = None,
+    tolerance_fraction: float | None = None,
 ) -> WorstCaseSummary:
     """Evaluate every corner and reduce the results to design-relevant extremes.
 
     ``evaluate`` must return at least ``efficiency``, ``loss_w``,
-    ``input_current_a``, ``duty`` and ``predicted_ripple_mv`` for its corner.
-    A corner that raises is not silently dropped: the exception propagates,
-    because a design that cannot be evaluated somewhere in its envelope is a
-    finding, not a gap to paper over.
+    ``input_current_a``, ``duty``, ``predicted_ripple_mv`` and
+    ``output_voltage_v`` for its corner.  A corner that raises is not silently
+    dropped: the exception propagates, because a design that cannot be evaluated
+    somewhere in its envelope is a finding, not a gap to paper over.
+
+    Supplying ``target_output_voltage_v`` and ``tolerance_fraction`` turns the
+    delivered rail into an acceptance check rather than a bare number, which is
+    what makes a fixed-duty design's lack of regulation visible.
     """
 
     corner_list = tuple(corners)
@@ -316,6 +345,32 @@ def worst_case_summary(
     def corner_id(row: Mapping[str, Any]) -> str:
         return str(dict(row["corner"])["corner_id"])
 
+    violations: list[dict[str, Any]] = []
+    if target_output_voltage_v is not None or tolerance_fraction is not None:
+        if target_output_voltage_v is None or tolerance_fraction is None:
+            raise ValueError(
+                "regulation needs both target_output_voltage_v and tolerance_fraction"
+            )
+        if target_output_voltage_v <= 0.0:
+            raise ValueError("target output voltage must be positive")
+        if not 0.0 <= tolerance_fraction < 1.0:
+            raise ValueError("tolerance_fraction must be within [0, 1)")
+        low = target_output_voltage_v * (1.0 - tolerance_fraction)
+        high = target_output_voltage_v * (1.0 + tolerance_fraction)
+        for row in rows:
+            delivered = float(row["output_voltage_v"])
+            if not low <= delivered <= high:
+                violations.append(
+                    {
+                        "corner_id": corner_id(row),
+                        "delivered_v": delivered,
+                        "allowed_min_v": low,
+                        "allowed_max_v": high,
+                        "error_fraction": (delivered - target_output_voltage_v)
+                        / target_output_voltage_v,
+                    }
+                )
+
     return WorstCaseSummary(
         corner_count=len(rows),
         efficiency_min=float(efficiency_min_row["efficiency"]),
@@ -336,6 +391,9 @@ def worst_case_summary(
         output_voltage_max_v=float(voltage_max_row["output_voltage_v"]),
         output_voltage_max_corner=corner_id(voltage_max_row),
         nominal_output_voltage_v=float(nominal["output_voltage_v"]),
+        target_output_voltage_v=target_output_voltage_v,
+        tolerance_fraction=tolerance_fraction,
+        regulation_violations=tuple(violations),
         corner_results=tuple(rows),
     )
 

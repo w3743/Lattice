@@ -1004,7 +1004,28 @@ def _stage_envelope_analysis(
             "load_fraction": corner.load_fraction,
         }
 
-    return worst_case_summary(enumerate_corners(envelope), evaluate)
+    return worst_case_summary(
+        enumerate_corners(envelope),
+        evaluate,
+        target_output_voltage_v=nominal_vout,
+        tolerance_fraction=_output_tolerance_fraction(ir),
+    )
+
+
+def _output_tolerance_fraction(ir: UnifiedIR) -> float:
+    """Relative band the delivered rail may move within across the envelope.
+
+    Defaults to 5 %, the usual starting point for a regulated supply.  A spec
+    can widen or tighten it with
+    ``optimization.worst_case.output_tolerance_fraction``.
+    """
+
+    options = dict(ir.optimization.get("worst_case", {}) or {})
+    raw = options.get("output_tolerance_fraction", 0.05)
+    value = float(raw)
+    if not 0.0 <= value < 1.0:
+        raise ValueError("output_tolerance_fraction must be within [0, 1)")
+    return value
 
 
 def _flyback_parameters(
