@@ -30,13 +30,17 @@ from .feasibility import FeasibilityReport, enforce_feasibility
 from .formatting import db20
 from .optimizers import DifferentialEvolutionParameterOptimizer, ParameterOptimizer
 from .optimization import (
+    FidelityDisagreement,
     FidelityRole,
     FidelitySchedule,
     FidelityScheduleRun,
     FidelityScheduler,
     FidelityStage,
     OptimizationRunResult,
+    attach_disagreement_diagnostics,
+    compare_fidelity_results,
     default_ac_fidelity_schedule,
+    disagreement_from_options,
 )
 from .pareto import metrics_to_objectives, pareto_points
 from .metrics import MetricContext, MetricEngine, MetricSpec
@@ -94,6 +98,7 @@ class SynthesisResult:
     simulation_capabilities: tuple[dict[str, Any], ...] = ()
     constraint_report: ConstraintReport | None = None
     fidelity_schedule: FidelityScheduleRun | None = None
+    fidelity_comparison: FidelityDisagreement | None = None
     discretization: DiscretizationResult | None = None
 
     def netlist(self, title: str | None = None) -> str:
@@ -232,6 +237,9 @@ class SynthesisResult:
             ),
             "fidelity_schedule": (
                 self.fidelity_schedule.as_dict() if self.fidelity_schedule is not None else None
+            ),
+            "fidelity_comparison": (
+                self.fidelity_comparison.as_dict() if self.fidelity_comparison is not None else None
             ),
         }
 
@@ -509,13 +517,57 @@ class CircuitSynthesizer:
             backend = resolution.selected.implementation
             capability = resolution.as_dict()
         simulation_result = SimulationExecutor().execute(backend, graph, (request,))[0]
+        # Plan §7.3 rule 4 needs two *backends* on one candidate to have anything
+        # to compare.  A truth gate alone gives one result, so when an external
+        # truth backend is requested we also run the internal model on the same
+        # graph and parameters, and compare the two.  A truth result that did not
+        # pass carries no comparable numbers, so it stays exactly as before.
+        fidelity_comparison = None
+        simulation_results: tuple[SimulationResult, ...] = (simulation_result,)
+        if use_spice and simulation_result.status is SimulationStatus.PASSED:
+            low_request = replace(
+                request,
+                request_id=f"{result.template.name}__internal_ac_screen",
+                fidelity="linear_frequency_domain",
+                metadata={key: value for key, value in request.metadata.items() if key != "truth_backend"},
+            )
+            internal_backend = (
+                CapabilityResolver(self.capability_registry)
+                .resolve(
+                    CapabilityRequest(
+                        role=CapabilityRole.SIMULATION_BACKEND,
+                        solver_id="linear_mna",
+                        analysis_kinds=frozenset({low_request.analysis.kind}),
+                        model_kinds=frozenset(
+                            component.model.kind for component in graph.components
+                        ),
+                    )
+                )
+                .selected.implementation
+            )
+            low_result = SimulationExecutor().execute(internal_backend, graph, (low_request,))[0]
+            enabled, threshold = disagreement_from_options(
+                dict(spec.optimization.fidelity_disagreement) if spec is not None else None
+            )
+            # Record the comparison whenever two real backends produced numbers;
+            # the policy only decides whether a breach becomes a diagnostic.
+            fidelity_comparison = compare_fidelity_results(
+                low_result, simulation_result, threshold=threshold
+            )
+            simulation_results = (simulation_result, low_result)
+            if enabled:
+                simulation_results = tuple(
+                    attach_disagreement_diagnostics(simulation_results, (fidelity_comparison,))
+                )
+                simulation_result = simulation_results[0]
         constraint_report = _ac_constraint_report(result, graph, request, simulation_result)
         return replace(
             result,
             simulation_requests=(request,),
-            simulation_results=(simulation_result,),
+            simulation_results=simulation_results,
             simulation_capabilities=(capability,),
             constraint_report=constraint_report,
+            fidelity_comparison=fidelity_comparison,
         )
 
     def _optimize_template(

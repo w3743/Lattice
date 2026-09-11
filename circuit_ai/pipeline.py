@@ -44,6 +44,12 @@ from .simulation import (
     simulation_requests_for_tasks,
 )
 from .selection import CandidateDecision, rank_candidates
+from .optimization import (
+    FidelityDisagreement,
+    attach_disagreement_diagnostics,
+    compare_fidelity_results,
+    disagreement_from_options,
+)
 from .topology_grammar import PowerTopologyGrammar, TopologySearchCertificate
 
 
@@ -65,6 +71,7 @@ class PowerDesignResult:
     simulation_results: tuple[SimulationResult, ...] = ()
     capability_resolutions: tuple[CapabilityResolution, ...] = ()
     capability_gaps: tuple[CapabilityGap, ...] = ()
+    fidelity_comparisons: tuple[FidelityDisagreement, ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -73,6 +80,12 @@ class PowerDesignResult:
             and all(item.passed for item in self.simulation_evaluations)
             and all(item.succeeded for item in self.simulation_results)
         )
+
+    @property
+    def model_disagreements(self) -> tuple[FidelityDisagreement, ...]:
+        """Comparisons whose backends breached the agreement threshold."""
+
+        return tuple(item for item in self.fidelity_comparisons if item.disagreed)
 
 
 @dataclass(frozen=True)
@@ -86,6 +99,7 @@ class PowerCandidateEvaluation:
     selection_score: float
     capability_resolutions: tuple[CapabilityResolution, ...]
     selection_rank: CandidateDecision | None = None
+    fidelity_comparisons: tuple[FidelityDisagreement, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         measurements = _simulation_measurements(self.simulation_results)
@@ -97,6 +111,7 @@ class PowerCandidateEvaluation:
             "simulation_requests": [item.as_dict() for item in self.simulation_requests],
             "simulation_results": [item.as_dict() for item in self.simulation_results],
             "simulation_task_evaluations": [item.as_dict() for item in self.task_evaluations],
+            "fidelity_comparisons": [item.as_dict() for item in self.fidelity_comparisons],
             "objective": self.optimization.objective,
             "optimization_run": (
                 self.optimization.optimization_run.as_dict()
@@ -201,8 +216,31 @@ def design_from_pbdl(
             simulation_executor=SimulationExecutor(),
         )
         if high_fidelity_results:
+            # Plan §7.3 rule 4: the averaged model and the SPICE gate are two
+            # backends on one candidate, so their difference is the
+            # model_disagreement signal.  Pair them before the planning results
+            # are concatenated with the truth results.  The comparison record is
+            # always kept; the policy only decides whether a breach becomes a
+            # diagnostic.
+            truth_pairs = _pair_truth_with_planning(
+                simulation_requests,
+                simulation_results,
+                high_fidelity_requests,
+                high_fidelity_results,
+            )
+            disagreement_enabled, disagreement_threshold = disagreement_from_options(
+                dict(ir.optimization.get("fidelity_disagreement", {}) or {})
+            )
+            fidelity_comparisons = tuple(
+                compare_fidelity_results(planning, truth, threshold=disagreement_threshold)
+                for planning, truth in truth_pairs
+            )
             simulation_requests = simulation_requests + high_fidelity_requests
             simulation_results = simulation_results + high_fidelity_results
+            if disagreement_enabled and fidelity_comparisons:
+                simulation_results = tuple(
+                    attach_disagreement_diagnostics(simulation_results, fidelity_comparisons)
+                )
             if any(item.status is not SimulationStatus.PASSED for item in high_fidelity_results):
                 candidate_validation = replace(
                     candidate_validation,
@@ -212,6 +250,8 @@ def design_from_pbdl(
                         "requested high-fidelity power verification did not pass",
                     ),
                 )
+        else:
+            fidelity_comparisons = ()
         task_evaluations = _evaluate_task_request_groups(
             simulation_tasks,
             request_groups,
@@ -236,6 +276,7 @@ def design_from_pbdl(
                     simulator_resolution,
                     validator_resolution,
                 ),
+                fidelity_comparisons=fidelity_comparisons,
             )
         )
     if not evaluations:
@@ -332,6 +373,9 @@ def design_from_pbdl(
                 ),
                 "selection_score": selected.selection_score,
                 "topology_search": search.certificate.as_dict(),
+                "fidelity_comparisons": [
+                    item.as_dict() for item in selected.fidelity_comparisons
+                ],
                 "candidates": [item.as_dict() for item in evaluations],
                 "capabilities": {
                     "selected": [item.as_dict() for item in selected_resolutions],
@@ -406,6 +450,7 @@ def design_from_pbdl(
         simulation_results=selected.simulation_results,
         capability_resolutions=tuple(selected_resolutions),
         capability_gaps=tuple(capability_gaps),
+        fidelity_comparisons=tuple(selected.fidelity_comparisons),
     )
 
 
@@ -424,6 +469,38 @@ def _capability_request(
         model_kinds=frozenset(component.kind for component in candidate.components),
         export_format=export_format,
     )
+
+
+def _pair_truth_with_planning(
+    planning_requests: tuple[SimulationRequest, ...],
+    planning_results: tuple[SimulationResult, ...],
+    truth_requests: tuple[SimulationRequest, ...],
+    truth_results: tuple[SimulationResult, ...],
+) -> tuple[tuple[SimulationResult, SimulationResult], ...]:
+    """Pair every truth result with the planning result it re-evaluates.
+
+    ``_optional_power_truth`` derives each truth request id from its planning
+    request, so the request id -- not tuple position -- is the declared
+    correspondence between the two fidelities.  The truth result must carry
+    that same id: a result is bound to its request, so trusting slot order
+    would silently compare the wrong pair if the two tuples ever disagree.
+    A truth result that did not pass carries no comparable numbers and is
+    skipped rather than compared against a valid planning result.
+    """
+
+    planning_by_id = {result.request_id: result for result in planning_results}
+    truth_by_request_id = {result.request_id: result for result in truth_results}
+    pairs: list[tuple[SimulationResult, SimulationResult]] = []
+    for truth_request in truth_requests:
+        truth_result = truth_by_request_id.get(truth_request.request_id)
+        if truth_result is None or truth_result.status is not SimulationStatus.PASSED:
+            continue
+        base_id = truth_request.request_id.removesuffix("__spice_truth")
+        planning_result = planning_by_id.get(base_id)
+        if planning_result is None or planning_result.status is not SimulationStatus.PASSED:
+            continue
+        pairs.append((planning_result, truth_result))
+    return tuple(pairs)
 
 
 def _optional_power_truth(

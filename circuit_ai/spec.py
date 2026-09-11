@@ -166,6 +166,7 @@ class OptimizationSpec:
     weights: dict[str, float] = field(default_factory=dict)
     graph_search: dict[str, Any] = field(default_factory=dict)
     fidelity: dict[str, Any] = field(default_factory=dict)
+    fidelity_disagreement: dict[str, Any] = field(default_factory=dict)
     optimizer: dict[str, Any] = field(default_factory=dict)
     robustness: dict[str, Any] = field(default_factory=dict)
     spice_verification: dict[str, Any] = field(default_factory=dict)
@@ -203,6 +204,7 @@ class OptimizationSpec:
             weights=dict(data.get("weights", {})),
             graph_search=dict(data.get("graph_search", {})),
             fidelity=dict(data.get("fidelity", {})),
+            fidelity_disagreement=dict(data.get("fidelity_disagreement", {})),
             optimizer=dict(data.get("optimizer", {})),
             robustness=dict(data.get("robustness", {})),
             spice_verification=dict(data.get("spice_verification", {})),
