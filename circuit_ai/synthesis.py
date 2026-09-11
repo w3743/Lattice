@@ -25,6 +25,7 @@ from .constraints import (
     ConstraintSpec,
     FeasibilityStatus,
 )
+from .constraints.compiler import _target_tolerance_limit, _ToleranceLimit
 from .differentiable import DifferentiableRefinementResult, refine_graph_parameters
 from .discretization import DiscretizationResult, discretize_template_candidates
 from .feasibility import FeasibilityReport, enforce_feasibility
@@ -587,7 +588,9 @@ class CircuitSynthesizer:
                     attach_disagreement_diagnostics(simulation_results, (fidelity_comparison,))
                 )
                 simulation_result = simulation_results[0]
-        constraint_report = _ac_constraint_report(result, graph, request, simulation_result)
+        constraint_report = _ac_constraint_report(
+            result, graph, request, simulation_result, getattr(spec, "behavior", None)
+        )
         # Band acceptance is evaluated on the measured response, not on the
         # analytic target, so it reports what the circuit actually achieves.
         filter_mask_report = _ac_filter_mask_report(result.target, simulation_result)
@@ -1083,11 +1086,30 @@ def _ac_filter_mask_report(
     return evaluate_filter_mask(mask, frequencies, magnitudes)
 
 
+def _ac_tolerance_limit(
+    behavior: Mapping[str, Any] | None,
+    result: SynthesisResult,
+) -> _ToleranceLimit | None:
+    """The acceptance limit a spec's declared tolerance implies, or ``None``.
+
+    The conversion lives with the other tolerance code so both analysis paths
+    read a tolerance the same way.  The target trace is taken from the analytic
+    target the design was optimised against, which is what a relative tolerance
+    has to be relative to.
+    """
+
+    if not isinstance(behavior, Mapping) or "tolerance" not in behavior:
+        return None
+    trace = 20.0 * np.log10(np.maximum(np.abs(np.asarray(result.target.values)), 1e-300))
+    return _target_tolerance_limit(dict(behavior), tuple(float(item) for item in trace))
+
+
 def _ac_constraint_report(
     result: SynthesisResult,
     graph: CircuitGraph,
     request: SimulationRequest,
     simulation_result: SimulationResult,
+    behavior: Mapping[str, Any] | None = None,
 ) -> ConstraintReport:
     """Evaluate final AC evidence through the shared metric/constraint pipeline."""
     if not request.requested_observables:
@@ -1150,6 +1172,31 @@ def _ac_constraint_report(
         )
         for metric in metric_specs
     )
+    # A tolerance the spec declares is an acceptance limit, and this path used to
+    # emit only soft objectives, so *every* design passed here regardless of how
+    # far it missed. The magnitude RMSE metric is reused so the limit and the
+    # minimisation cannot drift apart.
+    tolerance_limit = _ac_tolerance_limit(behavior, result)
+    if tolerance_limit is not None:
+        magnitude_metric = next(
+            item for item in metric_specs if item.metric_id == "ac.rmse_db"
+        )
+        constraints = (
+            *constraints,
+            ConstraintSpec(
+                constraint_id="target.rmse_db_within_tolerance",
+                metric=magnitude_metric,
+                operator=ConstraintOperator.MAXIMUM,
+                severity=ConstraintSeverity.HARD,
+                maximum=tolerance_limit.value,
+                unit="dB",
+                source_path="synthesis.final_ac_verification.tolerance",
+                description=(
+                    f"frequency-response magnitude RMSE must stay within "
+                    f"{tolerance_limit.basis}"
+                ),
+            ),
+        )
     metric_values = MetricEngine().extract(
         metric_specs,
         MetricContext(
