@@ -729,16 +729,124 @@ class NMOS(NonlinearDevice):
         )
 
 
+@dataclass(frozen=True)
+class PMOSParameters:
+    """Long-channel PMOS channel parameters (ngspice MOS1 notation).
+
+    ``threshold_voltage_v`` is the *magnitude* ``|VTO|``.  A PMOS model card writes
+    ``VTO=-1.0``; storing the magnitude keeps the polarity in the device type
+    rather than in a sign the caller has to remember, and a name that says
+    "magnitude" is harder to mis-fill than one that does not.
+
+    This is the fixed-temperature, GAMMA=0 channel only: no body junction,
+    subthreshold leakage, capacitance, series resistance, or thermal model.  It
+    must not be used as a power-MOSFET switching or device-rating model.
+    """
+
+    threshold_voltage_v: float = 1.0  # |VTO|
+    transconductance_a_per_v2: float = 1e-4  # KP
+    width_m: float = 10e-6
+    length_m: float = 1e-6
+    channel_length_modulation_per_v: float = 0.0  # LAMBDA
+
+    def __post_init__(self) -> None:
+        for name in self.__dataclass_fields__:
+            value = getattr(self, name)
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be finite")
+        for name in ("transconductance_a_per_v2", "width_m", "length_m"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if self.threshold_voltage_v < 0:
+            raise ValueError(
+                "threshold_voltage_v is a magnitude for PMOS and must not be negative"
+            )
+        if self.channel_length_modulation_per_v < 0:
+            raise ValueError("channel_length_modulation_per_v must not be negative")
+
+
+@dataclass(frozen=True)
+class PMOS(NonlinearDevice):
+    """Three-terminal, bidirectional MOS1 p-channel; see PMOSParameters for limits.
+
+    Drain/gate/source constructor order matches a SPICE instance, excluding the
+    unmodelled bulk. DC and small-signal AC share the same analytic Jacobian.
+
+    The difference from :class:`NMOS` is not a sign on the current.  A p-channel
+    device conducts when its gate sits *below* its source, so the gate drive has to
+    be measured from the **higher** of the two channel terminals -- which is the
+    source in forward operation and the drain when the device is used backwards.
+    Measuring it from the low terminal, as an n-channel model does, inverts the
+    transfer characteristic while still producing a plausible-looking curve.
+    """
+
+    name: str
+    drain: str
+    gate: str
+    source: str
+    parameters: PMOSParameters = field(default_factory=PMOSParameters)
+
+    def terminals(self) -> tuple[tuple[str, str], ...]:
+        return ((self.drain, "drain"), (self.gate, "gate"), (self.source, "source"))
+
+    def stamp(self, voltages: Mapping[str, float]) -> NonlinearStamp:
+        vd, vg, vs = (float(voltages[key]) for key in ("drain", "gate", "source"))
+        if not all(np.isfinite(value) for value in (vd, vg, vs)):
+            raise ConvergenceError(f"device {self.name!r} received non-finite voltages")
+        # The conducting channel runs from the higher to the lower potential
+        # terminal, and for a p-channel device that makes the source the effective
+        # source of carriers when it is the higher one.
+        forward = vs >= vd
+        high_name, low_name = ("source", "drain") if forward else ("drain", "source")
+        high, low = (vs, vd) if forward else (vd, vs)
+        vds = high - low
+        # Gate drive is measured from the high terminal, hence positive in
+        # conduction; this is the whole difference from the n-channel model.
+        overdrive = high - vg - self.parameters.threshold_voltage_v
+        beta = self.parameters.transconductance_a_per_v2 * (
+            self.parameters.width_m / self.parameters.length_m
+        )
+        lam = self.parameters.channel_length_modulation_per_v
+        factor = 1.0 + lam * vds
+        if overdrive <= 0:
+            channel, gm, gds = 0.0, 0.0, 0.0
+        elif vds < overdrive:
+            unmodulated = beta * (overdrive * vds - 0.5 * vds**2)
+            channel = unmodulated * factor
+            gm = beta * vds * factor
+            gds = beta * (overdrive - vds) * factor + lam * unmodulated
+        else:
+            unmodulated = 0.5 * beta * overdrive**2
+            channel = unmodulated * factor
+            gm = beta * overdrive * factor
+            gds = lam * unmodulated
+        # Positive channel current flows from the high terminal to the low one, so
+        # it enters the device at the high terminal.  The high terminal's voltage
+        # raises both the drain-source voltage and the gate drive, which is why its
+        # own derivative carries gds *and* gm rather than gds alone.
+        derivatives = {high_name: gds + gm, low_name: -gds, "gate": -gm}
+        jacobian = {(high_name, key): value for key, value in derivatives.items()}
+        jacobian.update({(low_name, key): -value for key, value in derivatives.items()})
+        return NonlinearStamp(
+            current=channel,
+            conductance=gds,
+            jacobian=jacobian,
+            terminal_currents={high_name: channel, low_name: -channel, "gate": 0.0},
+        )
+
+
 __all__ = [
     "BOLTZMANN_J_PER_K",
     "ELECTRON_CHARGE_C",
+    "NMOS",
+    "PMOS",
     "ConvergenceError",
     "Diode",
     "DiodeParameters",
-    "NMOS",
     "NMOSParameters",
     "NonlinearDevice",
     "NonlinearStamp",
+    "PMOSParameters",
     "junction_limiting_voltage",
     "scaled_saturation_current",
     "thermal_voltage",

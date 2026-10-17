@@ -7,15 +7,30 @@ from time import perf_counter
 
 import numpy as np
 
-from ..devices import ConvergenceError, Diode, DiodeParameters, NMOS, NMOSParameters
+from ..devices import (
+    NMOS,
+    PMOS,
+    ConvergenceError,
+    Diode,
+    DiodeParameters,
+    NMOSParameters,
+    PMOSParameters,
+)
 from ..graph import CircuitGraph, ModelRef, graph_to_linear_circuit, primitive_model_ref
 from ..graph.primitives import NONLINEAR_PARAMETER_UNITS, parameter_unit
 from ..mna import CompiledLinearMNA
 from ..nonlinear import NonlinearMNA
 from ..units import convert_scalar
 from .backends import BackendCapabilities, UnsupportedModelError, _model_manifest
-from .contracts import (Diagnostic, Quantity, ResultAxis, SimulationRequest,
-                        SimulationResult, SimulationStatus, Waveform)
+from .contracts import (
+    Diagnostic,
+    Quantity,
+    ResultAxis,
+    SimulationRequest,
+    SimulationResult,
+    SimulationStatus,
+    Waveform,
+)
 
 
 @dataclass(frozen=True)
@@ -35,7 +50,7 @@ class NonlinearMNASimulatorBackend:
     capabilities = BackendCapabilities(
         backend_id="nonlinear_mna", backend_version="1.0.0",
         analysis_kinds=frozenset({"dc_operating_point", "small_signal_ac"}),
-        model_kinds=frozenset({"R", "C", "voltage_source", "current_source", "vcvs", "diode", "nmos_channel"}),
+        model_kinds=frozenset({"R", "C", "voltage_source", "current_source", "vcvs", "diode", "nmos_channel", "pmos_channel"}),
         fidelities=frozenset({"nonlinear_device"}),
     )
 
@@ -122,9 +137,12 @@ class NonlinearMNASimulatorBackend:
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
             return result(SimulationStatus.FAILED, diagnostics=(Diagnostic("invalid_request", "error", str(exc)),))
         diagnostics = ()
-        if any(isinstance(device, NMOS) for device in devices):
+        channel = [type(device).__name__ for device in devices
+                   if isinstance(device, (NMOS, PMOS))]
+        if channel:
             diagnostics = (Diagnostic("channel_only_model", "info",
-                "NMOS is a 27 C channel model without bulk, junctions, intrinsic capacitance or thermal effects."),)
+                f"{'/'.join(sorted(set(channel)))} is a 27 C channel model without bulk, "
+                "junctions, intrinsic capacitance or thermal effects."),)
         return result(SimulationStatus.PASSED, scalars=scalars, waveforms=waveforms,
                       diagnostics=diagnostics, statistics={
                           "operating_point": bias.as_dict(), "frequency_points": len(frequencies),
@@ -138,8 +156,10 @@ class NonlinearMNASimulatorBackend:
             raise UnsupportedModelError(f"cannot provide requested fidelity {request.fidelity!r}")
         if request.conditions.corner != "typical" or request.conditions.variables:
             raise UnsupportedModelError("nonlinear_mna does not model corners or additional operating variables")
-        if any(c.model.kind == "nmos_channel" for c in graph.components) and request.conditions.temperature_c != 27.0:
-            raise UnsupportedModelError("nmos_channel is fixed at 27 C; temperature scaling is not implemented")
+        channel_kinds = {"nmos_channel", "pmos_channel"} & {c.model.kind for c in graph.components}
+        if channel_kinds and request.conditions.temperature_c != 27.0:
+            raise UnsupportedModelError(
+                f"{'/'.join(sorted(channel_kinds))} is fixed at 27 C; temperature scaling is not implemented")
         if request.conditions.temperature_c <= -273.15:
             raise ValueError("temperature must be above absolute zero")
         sweeps = request.analysis.sweeps
@@ -187,6 +207,9 @@ def _materialize(graph, request):
         elif kind == "nmos_channel":
             devices.append(NMOS(component.reference, terminals["drain"], terminals["gate"], terminals["source"],
                                 NMOSParameters(**parameters)))
+        elif kind == "pmos_channel":
+            devices.append(PMOS(component.reference, terminals["drain"], terminals["gate"], terminals["source"],
+                                PMOSParameters(**parameters)))
         else:
             linear.append(replace(component, parameters=tuple(
                 replace(binding, value=parameters[binding.name], unit=allowed[binding.name], variable_id=None)

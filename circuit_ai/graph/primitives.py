@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .model import ModelRef, ModelTerminal
 
-
 # The galvanic isolation device is the only element allowed to connect terminals that
 # live in mutually isolated graph domains; every other component must stay inside one
 # domain (see ``circuit_ai/knowledge/power_topologies.yaml`` "isolated_transformer").
@@ -24,6 +23,10 @@ NONLINEAR_PARAMETER_UNITS = {
         "saturation_current_temperature_exponent": "1",
     },
     "nmos_channel": {
+        "threshold_voltage_v": "V", "transconductance_a_per_v2": "A/V**2",
+        "width_m": "m", "length_m": "m", "channel_length_modulation_per_v": "1/V",
+    },
+    "pmos_channel": {
         "threshold_voltage_v": "V", "transconductance_a_per_v2": "A/V**2",
         "width_m": "m", "length_m": "m", "channel_length_modulation_per_v": "1/V",
     },
@@ -73,6 +76,10 @@ def primitive_model_ref(kind: str, terminal_count: int | None = None) -> ModelRe
         ),
         "nmos_channel": (
             "builtin.nonlinear.nmos_channel", "nmos_channel",
+            (_passive("drain"), _terminal("gate", "input", "voltage"), _passive("source")),
+        ),
+        "pmos_channel": (
+            "builtin.nonlinear.pmos_channel", "pmos_channel",
             (_passive("drain"), _terminal("gate", "input", "voltage"), _passive("source")),
         ),
         "ideal_transformer": (

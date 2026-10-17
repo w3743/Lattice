@@ -61,9 +61,12 @@ Being explicit here matters more than sounding capable:
   Earlier statements in this repository that no external verification was
   possible were wrong, because availability was checked on `PATH` only.
 - **Library capabilities beyond synthesis:** nonlinear diode and channel-only
-  NMOS DC/small-signal AC, plus port S-parameters, have independent and ngspice
-  checks. Nonlinear devices also have a registered `CircuitGraph` simulation
-  backend; automated PBDL synthesis remains unwired.
+  NMOS/PMOS DC/small-signal AC, plus port S-parameters, have independent and
+  ngspice checks. The two channel models compose into CMOS: an inverter's DC
+  transfer is checked against ngspice, but there is still no transient or
+  event-driven engine, so this is analog verification of logic levels, not
+  digital simulation. Nonlinear devices also have a registered `CircuitGraph`
+  simulation backend; automated PBDL synthesis remains unwired.
   S-parameters are currently a library API.
   CircuitGraph KiCad exports have passed native KiCad CLI pin/net round-trip
   checks, including nonlinear devices. GUI review, ERC and PCB validation
@@ -332,16 +335,41 @@ switching losses, switching speed, ratings, or thermal safety. It is usable
 through Python and the unified simulation backend, not yet automatically
 generated from PBDL requirements.
 
+`PMOS` and `PMOSParameters` add the complementary p-channel device with the same
+protocol, so `PMOS` and `NMOS` are interchangeable wherever a channel model is
+expected. The p-channel device is **not** the n-channel one with a negated current:
+its gate drive is referenced to the *higher* of its two channel terminals, which is
+the source in forward operation and the drain when it is used backwards. A model
+that referenced the low terminal instead would still produce a smooth transfer
+curve, for the wrong device; `tests/test_pmos.py` pins the quantity so that cannot
+regress. `threshold_voltage_v` is the magnitude `|VTO|` (a PMOS card writes
+`VTO=-1.0`), and the constructor rejects a negative value rather than guessing.
+
+The pair composes into CMOS. `tests/test_pmos.py` checks that a symmetric inverter
+restores both rails, that its switching point lands at `VDD/2` with a slope matching
+`(gm_n + gm_p)/(gds_n + gds_p)` from the two devices' own stamps, and that its
+51-point transfer characteristic matches a live ngspice run within `4.3e-9 V`.
+Its live ngspice channel comparisons cover 396 PMOS DC points (both values of
+`LAMBDA`, including reverse operation) at `9.3e-12 A` and 13 AC frequencies at
+`1.7e-9 V`; the 2026-10-04 run is recorded in `docs/plan_deltas.md`.
+
+```python
+from circuit_ai.devices import NMOS, NMOSParameters, PMOS, PMOSParameters
+
+n = NMOS("MN", "out", "in", "0", NMOSParameters())
+p = PMOS("MP", "out", "in", "vdd", PMOSParameters())  # source on the positive rail
+```
+
 ### Unified nonlinear simulation
 
 `simulation.nonlinear_mna` resolves by model/analysis, without a topology-family
-whitelist. It accepts the builtin `diode` and `nmos_channel` graph model IDs,
-R/C, independent sources and VCVS. It executes DC operating point and biased
-small-signal AC through `SimulationExecutor`, producing normal request/graph
-hashes, model manifests, operating-point residuals, quantities and waveforms.
-It does not currently accept inductors, transient analyses, vendor models or
-process corners. NMOS requests must explicitly select 27 C; diode temperature
-comes from `OperatingConditions`.
+whitelist. It accepts the builtin `diode`, `nmos_channel` and `pmos_channel` graph
+model IDs, R/C, independent sources and VCVS. It executes DC operating point and
+biased small-signal AC through `SimulationExecutor`, producing normal
+request/graph hashes, model manifests, operating-point residuals, quantities and
+waveforms. It does not currently accept inductors, transient analyses, vendor
+models or process corners. NMOS and PMOS requests must explicitly select 27 C;
+diode temperature comes from `OperatingConditions`.
 
 Fixed source values are DC biases. `ac_voltage`/`ac_current` excitations supply
 separate magnitudes and phases; unexcited sources are zero in AC. Parameter and
