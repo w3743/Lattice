@@ -38,6 +38,7 @@ from .ngspice_backend import (
     build_ngspice_netlist,
 )
 from .execution import SimulationCacheKey, SimulationExecutor, SimulationResultCache
+from .nonlinear_backend import NonlinearCompiledModel, NonlinearMNASimulatorBackend
 
 __all__ = [
     "SIMULATION_REQUEST_SCHEMA",
@@ -54,6 +55,8 @@ __all__ = [
     "LinearMNASimulatorBackend",
     "NgspiceCompiledModel",
     "NgspiceSimulatorBackend",
+    "NonlinearCompiledModel",
+    "NonlinearMNASimulatorBackend",
     "PowerCompiledModel",
     "TorchMNASimulatorBackend",
     "Quantity",

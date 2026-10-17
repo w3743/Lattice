@@ -10,6 +10,25 @@ from .model import ModelRef, ModelTerminal
 # domain (see ``circuit_ai/knowledge/power_topologies.yaml`` "isolated_transformer").
 ISOLATION_BARRIER_KIND = "ideal_transformer"
 
+# Physical units for the internal nonlinear models. Operating temperature is
+# supplied by SimulationRequest.conditions, not a second component parameter.
+NONLINEAR_PARAMETER_UNITS = {
+    "diode": {
+        "saturation_current_a": "A", "emission_coefficient": "1",
+        "series_resistance_ohm": "ohm", "breakdown_voltage_v": "V",
+        "breakdown_current_a": "A", "breakdown_emission_coefficient": "1",
+        "zero_bias_capacitance_f": "F", "junction_potential_v": "V",
+        "grading_coefficient": "1", "transit_time_s": "s",
+        "nominal_temperature_c": "degC", "forward_bias_coefficient": "1",
+        "forward_bias_exponent": "1", "activation_energy_ev": "eV",
+        "saturation_current_temperature_exponent": "1",
+    },
+    "nmos_channel": {
+        "threshold_voltage_v": "V", "transconductance_a_per_v2": "A/V**2",
+        "width_m": "m", "length_m": "m", "channel_length_modulation_per_v": "1/V",
+    },
+}
+
 
 def primitive_model_ref(kind: str, terminal_count: int | None = None) -> ModelRef:
     normalized = kind.strip()
@@ -47,6 +66,14 @@ def primitive_model_ref(kind: str, terminal_count: int | None = None) -> ModelRe
             "builtin.power.ideal_diode",
             "ideal_diode",
             (_passive("anode"), _passive("cathode")),
+        ),
+        "diode": (
+            "builtin.nonlinear.junction_diode", "diode",
+            (_passive("anode"), _passive("cathode")),
+        ),
+        "nmos_channel": (
+            "builtin.nonlinear.nmos_channel", "nmos_channel",
+            (_passive("drain"), _terminal("gate", "input", "voltage"), _passive("source")),
         ),
         "ideal_transformer": (
             "builtin.power.ideal_transformer",
@@ -88,6 +115,8 @@ def primitive_model_ref(kind: str, terminal_count: int | None = None) -> ModelRe
 
 
 def parameter_unit(kind: str, parameter: str) -> str:
+    if kind.casefold() in NONLINEAR_PARAMETER_UNITS:
+        return NONLINEAR_PARAMETER_UNITS[kind.casefold()].get(parameter, "")
     key = (kind.casefold(), parameter.casefold())
     return {
         ("r", "value"): "ohm",

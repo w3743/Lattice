@@ -34,6 +34,40 @@ POWER_MODELS = frozenset(
 )
 
 
+def test_nonlinear_diode_backend_preserves_temperature_and_internal_ac_nodes():
+    from circuit_ai.devices import Diode, DiodeParameters
+    from circuit_ai.graph import ComponentInstance, ParameterBinding, TerminalConnection, primitive_model_ref
+    from circuit_ai.nonlinear import NonlinearMNA
+    from circuit_ai.simulation import NonlinearMNASimulatorBackend, OperatingConditions
+
+    circuit = LinearCircuit(elements=(LinearElement("R1", "R", "in", "out", 1000.0),),
+                            voltage_sources=(VoltageSource("Vin", "in", "0", 0.7),))
+    graph = linear_circuit_to_graph(circuit)
+    diode = ComponentInstance("diode", "D1", primitive_model_ref("diode"),
+        (TerminalConnection("anode", "out"), TerminalConnection("cathode", "0")),
+        (ParameterBinding("series_resistance_ohm", "ohm", 10.0),
+         ParameterBinding("zero_bias_capacitance_f", "pF", 4.5)))
+    graph = replace(graph, components=graph.components + (diode,))
+    requests = tuple(SimulationRequest(
+        request_id=f"diode_{temp}", analysis=AnalysisSpec("small_signal_ac",
+            (SweepSpec("frequency", "Hz", values=(1e3, 1e8)),)), graph_id=graph.graph_id,
+        excitations=(Excitation("vin", "ac_voltage", "component", "Vin", {"magnitude": 1}),),
+        conditions=OperatingConditions(temperature_c=temp),
+        requested_observables=(ObservableSpec("voltage", "voltage", "V", "port", "output"),),
+    ) for temp in (27.0, 85.0))
+    results = SimulationExecutor(cache=SimulationResultCache(), max_workers=2).execute(
+        NonlinearMNASimulatorBackend(), graph, requests)
+    for temp, result in zip((27.0, 85.0), results):
+        assert result.status == SimulationStatus.PASSED, result.diagnostics
+        device = Diode("D1", "out", "0", DiodeParameters(temperature_c=temp,
+                        series_resistance_ohm=10, zero_bias_capacitance_f=4.5e-12))
+        point = NonlinearMNA(circuit, [device]).operating_point()
+        ac = replace(circuit, voltage_sources=(VoltageSource("Vin", "in", "0", 1.0),))
+        expected = NonlinearMNA(ac, [device]).solve_ac(np.array([1e3, 1e8]), operating_point=point)
+        assert result.waveforms["voltage"].values == pytest.approx(expected.node_voltage("out"), abs=1e-9)
+    assert results[0].waveforms["voltage"].values != results[1].waveforms["voltage"].values
+
+
 def _linear_fixture():
     circuit = LinearCircuit(
         elements=(

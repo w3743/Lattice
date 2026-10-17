@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from time import perf_counter
 
 import numpy as np
 
@@ -187,7 +188,7 @@ class NonlinearMNA:
     # -- DC operating point ---------------------------------------------------
 
     def operating_point(
-        self, *, initial: Mapping[str, float] | None = None
+        self, *, initial: Mapping[str, float] | None = None, deadline: float | None = None
     ) -> OperatingPoint:
         """Solve the DC bias point by Newton iteration on the conductance stamps.
 
@@ -195,11 +196,14 @@ class NonlinearMNA:
         nearby solution (a sweep, or a resumed run) converges faster and more
         reliably by supplying it.  Absent that, the iteration starts from a
         zero-bias linearisation, which is the same cold start an external
-        simulator uses.
+        simulator uses. ``deadline`` is an optional absolute ``perf_counter``
+        time, checked before initialization and on every Newton iteration.
         """
 
         for device in self.devices:
             device.reset()
+        if deadline is not None and perf_counter() > deadline:
+            raise TimeoutError("nonlinear operating point exceeded its time budget")
         size = self.compiled.size
         node_index = self.compiled.node_index
         # s = 0 is the resistive case: capacitors contribute zero admittance and
@@ -222,7 +226,14 @@ class NonlinearMNA:
                 if index is not None:
                     values[index] = complex(voltage)
         elif size:
-            values = np.linalg.solve(base, rhs).astype(np.complex128)
+            try:
+                values = np.linalg.solve(base, rhs).astype(np.complex128)
+            except np.linalg.LinAlgError:
+                # The linear subnetwork can be singular even though the full
+                # circuit is well posed (e.g. a diode-connected current mirror).
+                # This is only a seed; the full nonlinear residual still decides
+                # acceptance, and a trial-regularized solve never passes.
+                values = np.linalg.lstsq(base, rhs, rcond=None)[0]
 
         network_scale = max(1.0, float(np.max(np.abs(rhs))) if size else 1.0)
         # A tiny conductance to ground on each nonlinear terminal keeps the matrix
@@ -234,6 +245,8 @@ class NonlinearMNA:
         change = np.full(size, np.inf)
         residual = np.zeros(size, dtype=np.complex128)
         for iteration in range(1, self.max_iterations + 1):
+            if deadline is not None and perf_counter() > deadline:
+                raise TimeoutError("nonlinear operating point exceeded its time budget")
             matrix = base.copy()
             equivalent = np.zeros(size, dtype=np.complex128)
             for device in self.devices:
@@ -247,17 +260,26 @@ class NonlinearMNA:
             # convergence is tested against the circuit's own equations rather
             # than against the companion model that was just built from them.
             residual = rhs - matrix @ values + equivalent
+            regularized = False
             try:
                 candidate = np.linalg.solve(matrix, rhs + equivalent)
-            except np.linalg.LinAlgError as error:  # pragma: no cover - defensive
-                raise ConvergenceError(
-                    f"singular MNA matrix at Newton iteration {iteration}: {error}"
-                ) from error
+            except np.linalg.LinAlgError:
+                regularized = True
+                trial = matrix.copy()
+                for index in node_index.values():
+                    trial[index, index] += gmin
+                try:
+                    candidate = np.linalg.solve(trial, rhs + equivalent)
+                except np.linalg.LinAlgError as error:
+                    raise ConvergenceError(
+                        f"singular MNA matrix at Newton iteration {iteration}: {error}"
+                    ) from error
             change = candidate - values
             values = candidate
             residual_norm = float(np.max(np.abs(residual))) if size else 0.0
             if (
-                float(np.max(np.abs(change))) <= self.tolerance * network_scale
+                not regularized
+                and float(np.max(np.abs(change))) <= self.tolerance * network_scale
                 and residual_norm <= self.tolerance * network_scale
             ):
                 break
@@ -394,6 +416,12 @@ class NonlinearMNA:
         to the tolerance of a linearised substitute.
         """
 
+        if stamp.terminal_currents or stamp.jacobian:
+            self._stamp_terminal_model(
+                matrix, device, stamp, self.compiled.node_index,
+                equivalent=equivalent, values=values,
+            )
+            return
         p, m = self._device_terminals(device)
         conductance = float(stamp.conductance)
         current = float(stamp.current)
@@ -414,6 +442,38 @@ class NonlinearMNA:
         if p is not None and m is not None:
             matrix[p, m] -= conductance
             matrix[m, p] -= conductance
+
+    def _stamp_terminal_model(
+        self, matrix, device, stamp, node_index, *, equivalent=None, values=None
+    ) -> None:
+        """Stamp the full terminal Jacobian, with DC RHS ``J*v_k - I(v_k)``.
+
+        Each terminal has its own KCL row. Contributions must accumulate when
+        two terminals share a circuit node (for example a diode-connected MOS).
+        AC uses only J; DC also needs J*v_k, including control-node voltages.
+        """
+
+        terminals = dict((terminal, node) for node, terminal in device.terminals())
+        if set(stamp.terminal_currents) != set(terminals):
+            raise ValueError(f"device {device.name!r} must supply current for every terminal")
+        for current in stamp.terminal_currents.values():
+            if not np.isfinite(current):
+                raise ConvergenceError(f"device {device.name!r} produced non-finite terminal current")
+        for (row, col), derivative in stamp.jacobian.items():
+            if row not in terminals or col not in terminals:
+                raise ValueError(f"device {device.name!r} Jacobian references unknown terminal")
+            if not np.isfinite(derivative):
+                raise ConvergenceError(f"device {device.name!r} produced non-finite Jacobian")
+            i, j = _index(node_index, terminals[row]), _index(node_index, terminals[col])
+            if i is not None and j is not None:
+                matrix[..., i, j] += derivative
+                if equivalent is not None:
+                    equivalent[i] += derivative * values[j]
+        if equivalent is not None:
+            for terminal, current in stamp.terminal_currents.items():
+                i = _index(node_index, terminals[terminal])
+                if i is not None:
+                    equivalent[i] -= current
 
     # -- small-signal AC -----------------------------------------------------
 
@@ -474,13 +534,16 @@ class NonlinearMNA:
         passes over the same indices for no gain.
         """
 
-        p, m = self._device_terminals(
-            device, internal=True, node_index=self._ac_compiled.node_index
-        )
         stamp = (
             device.small_signal_stamp()
             if hasattr(device, "small_signal_stamp")
             else device.stamp(self._terminal_voltages(device, bias.values))
+        )
+        if stamp.terminal_currents or stamp.jacobian:
+            self._stamp_terminal_model(matrices, device, stamp, self._ac_compiled.node_index)
+            return
+        p, m = self._device_terminals(
+            device, internal=True, node_index=self._ac_compiled.node_index
         )
         conductance = float(stamp.conductance)
         capacitance = 0.0

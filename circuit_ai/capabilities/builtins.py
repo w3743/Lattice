@@ -14,6 +14,7 @@ from ..simulation import (
     AnalyticPowerSimulatorBackend,
     LinearMNASimulatorBackend,
     NgspiceSimulatorBackend,
+    NonlinearMNASimulatorBackend,
     TorchMNASimulatorBackend,
 )
 from .contracts import CapabilityRegistration, CapabilityRole, CapabilityTarget
@@ -185,6 +186,23 @@ def register_builtin_capabilities(registry: CapabilityRegistry) -> CapabilityReg
                 priority=100,
             ),
             LinearMNASimulatorBackend(),
+        )
+    )
+    nonlinear_mna = NonlinearMNASimulatorBackend()
+    registry.register(
+        CapabilityRegistration(
+            CapabilityTarget(
+                capability_id="simulation.nonlinear_mna",
+                version=nonlinear_mna.capabilities.backend_version,
+                role=CapabilityRole.SIMULATION_BACKEND,
+                description="Internal nonlinear diode and NMOS channel DC/small-signal backend",
+                solver_ids=frozenset({"nonlinear_mna"}),
+                analysis_kinds=nonlinear_mna.capabilities.analysis_kinds,
+                model_kinds=nonlinear_mna.capabilities.model_kinds,
+                fidelity="nonlinear_device",
+                priority=95,
+            ),
+            nonlinear_mna,
         )
     )
     torch_mna = TorchMNASimulatorBackend()

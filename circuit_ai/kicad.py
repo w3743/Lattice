@@ -17,6 +17,22 @@ from .mna import (
 
 
 SCHEMATIC_VERSION = "20250114"
+# (pin number, visible name, electrical type, library x/y, inward angle).
+# Both the embedded definitions and graph placement consume this table. KiCad
+# library coordinates use upward Y; sheet coordinates use downward Y.
+EMBEDDED_SYMBOL_PINS = {
+    **{name: (("1", "", "passive", 0, 3.81, 270), ("2", "", "passive", 0, -3.81, 90))
+       for name in ("R", "C", "L", "SWITCH", "DIODE")},
+    **{name: (("1", "+", "passive", 0, 5.08, 270), ("2", "-", "passive", 0, -5.08, 90))
+       for name in ("VDC", "IDC")},
+    "ESOURCE": (("1", "N+", "passive", 0, 5.08, 270), ("2", "N-", "passive", 0, -5.08, 90),
+                ("3", "C+", "input", -5.08, 5.08, 270), ("4", "C-", "input", -5.08, -5.08, 90)),
+    "TRANSFORMER": (("1", "", "passive", -5.08, -2.54, 0), ("2", "", "passive", -5.08, 2.54, 0),
+                    ("3", "", "passive", 5.08, -2.54, 180), ("4", "", "passive", 5.08, 2.54, 180)),
+    "JUNCTION_DIODE": (("1", "A", "passive", -3.81, 0, 0), ("2", "K", "passive", 3.81, 0, 180)),
+    "NMOS_CHANNEL": (("1", "D", "passive", 3.81, 2.54, 180), ("2", "G", "input", -3.81, 0, 0),
+                     ("3", "S", "passive", 3.81, -2.54, 180)),
+}
 _UUID_NAMESPACE = uuid.UUID("7d39345a-cd89-4c6c-b3b6-c8d1a80c90e9")
 
 
@@ -49,6 +65,7 @@ class _PlacedSymbol:
     sim_name: str = ""
     sim_pins: str = ""
     sim_device: str = ""
+    label_x_offset: float = 0.0
 
 
 def render_result_kicad_schematic(result, *, project_name: str = "best") -> str:
@@ -255,10 +272,10 @@ def _vcvs_symbol(
         position=_row_position(row),
         rotation=0,
         pins=(
-            _Pin(source.n_plus, _Point(0.0, 5.08), _Point(0.0, 7.62)),
-            _Pin(source.n_minus, _Point(0.0, -5.08), _Point(0.0, -7.62)),
-            _Pin(source.control_plus, _Point(-5.08, 5.08), _Point(-7.62, 7.62)),
-            _Pin(source.control_minus, _Point(-5.08, -5.08), _Point(-7.62, -7.62)),
+            _Pin(source.n_plus, _Point(0.0, -5.08), _Point(0.0, -7.62)),
+            _Pin(source.n_minus, _Point(0.0, 5.08), _Point(0.0, 7.62)),
+            _Pin(source.control_plus, _Point(-5.08, -5.08), _Point(-7.62, -7.62)),
+            _Pin(source.control_minus, _Point(-5.08, 5.08), _Point(-7.62, 7.62)),
         ),
         sim_library=sim_library,
         sim_name=sim_name,
@@ -305,6 +322,8 @@ def _library_symbols() -> list[str]:
     symbols.extend(_power_library_symbol("SWITCH", "Ideal PWM switch", _switch_graphics()))
     symbols.extend(_power_library_symbol("DIODE", "Ideal diode", _diode_graphics()))
     symbols.extend(_transformer_library_symbol())
+    symbols.extend(_device_library_symbol("JUNCTION_DIODE", "D", "Junction diode", _junction_diode_graphics()))
+    symbols.extend(_device_library_symbol("NMOS_CHANNEL", "M", "NMOS channel only; no bulk/parasitics", _nmos_graphics()))
     symbols.append("\t)")
     return symbols
 
@@ -329,8 +348,7 @@ def _power_library_symbol(name: str, description: str, graphics: list[str]) -> l
         *graphics,
         "\t\t\t)",
         f"\t\t\t(symbol {_q(name + '_1_1')}",
-        *_passive_pin("1", 0, 3.81, 270),
-        *_passive_pin("2", 0, -3.81, 90),
+        *_definition_pins(name),
         "\t\t\t)",
         "\t\t\t(embedded_fonts no)",
         "\t\t)",
@@ -365,10 +383,7 @@ def _transformer_library_symbol() -> list[str]:
         "\t\t\t\t)",
         "\t\t\t)",
         "\t\t\t(symbol \"TRANSFORMER_1_1\"",
-        *_passive_pin("1", -5.08, -2.54, 0),
-        *_passive_pin("2", -5.08, 2.54, 0),
-        *_passive_pin("3", 5.08, -2.54, 180),
-        *_passive_pin("4", 5.08, 2.54, 180),
+        *_definition_pins("TRANSFORMER"),
         "\t\t\t)",
         "\t\t\t(embedded_fonts no)",
         "\t\t)",
@@ -394,8 +409,7 @@ def _passive_library_symbol(name: str, description: str, graphics: list[str]) ->
         *graphics,
         "\t\t\t)",
         f"\t\t\t(symbol {_q(name + '_1_1')}",
-        *_passive_pin("1", 0, 3.81, 270),
-        *_passive_pin("2", 0, -3.81, 90),
+        *_definition_pins(name),
         "\t\t\t)",
         "\t\t\t(embedded_fonts no)",
         "\t\t)",
@@ -421,8 +435,7 @@ def _source_library_symbol(name: str, description: str, graphics: list[str], val
         *graphics,
         "\t\t\t)",
         f"\t\t\t(symbol {_q(name + '_1_1')}",
-        *_passive_pin("1", 0, 5.08, 270),
-        *_passive_pin("2", 0, -5.08, 90),
+        *_definition_pins(name),
         "\t\t\t)",
         "\t\t\t(embedded_fonts no)",
         "\t\t)",
@@ -458,14 +471,57 @@ def _esource_library_symbol() -> list[str]:
         ],
         "\t\t\t)",
         "\t\t\t(symbol \"ESOURCE_1_1\"",
-        *_named_pin("1", "N+", "passive", 0, 5.08, 270),
-        *_named_pin("2", "N-", "passive", 0, -5.08, 90),
-        *_named_pin("3", "C+", "input", -5.08, 5.08, 270),
-        *_named_pin("4", "C-", "input", -5.08, -5.08, 90),
+        *_definition_pins("ESOURCE"),
         "\t\t\t)",
         "\t\t\t(embedded_fonts no)",
         "\t\t)",
     ]
+
+
+def _definition_pins(name: str) -> list[str]:
+    return [line for pin in EMBEDDED_SYMBOL_PINS[name] for line in _named_pin(*pin)]
+
+
+def _device_library_symbol(name: str, prefix: str, description: str, graphics: list[str]) -> list[str]:
+    return [
+        f'\t\t(symbol {_q("CircuitAI:" + name)}',
+        '\t\t\t(pin_numbers (hide yes))',
+        '\t\t\t(pin_names (offset 0.508))',
+        '\t\t\t(exclude_from_sim no)', '\t\t\t(in_bom yes)', '\t\t\t(on_board yes)',
+        *_library_property("Reference", prefix, 0, 5.08, 0, hidden=False),
+        *_library_property("Value", name, 0, -5.08, 0, hidden=False),
+        *_library_property("Description", description, 0, 0, 0, hidden=True),
+        f'\t\t\t(symbol {_q(name + "_0_1")}', *graphics, '\t\t\t)',
+        f'\t\t\t(symbol {_q(name + "_1_1")}', *_definition_pins(name), '\t\t\t)',
+        '\t\t)',
+    ]
+
+
+def _nmos_graphics() -> list[str]:
+    paths = (
+        ((-2.54, 0), (-1.27, 0)), ((-1.27, -1.27), (-1.27, 1.27)),
+        ((0, -1.27), (0, 1.27)),
+        ((0, 1.27), (1.27, 1.27), (1.27, 2.54), (2.54, 2.54)),
+        ((0, -1.27), (1.27, -1.27), (1.27, -2.54), (2.54, -2.54)),
+    )
+    return _polyline_graphics(paths)
+
+
+def _junction_diode_graphics() -> list[str]:
+    return _polyline_graphics((
+        ((-2.54, 0), (-1.524, 0)),
+        ((-1.524, -1.524), (1.524, 0), (-1.524, 1.524), (-1.524, -1.524)),
+        ((1.524, -1.524), (1.524, 1.524)), ((1.524, 0), (2.54, 0)),
+    ))
+
+
+def _polyline_graphics(paths) -> list[str]:
+    return [line for path in paths for line in (
+        '\t\t\t\t(polyline',
+        '\t\t\t\t\t(pts ' + ' '.join(f'(xy {x} {y})' for x, y in path) + ')',
+        '\t\t\t\t\t(stroke (width 0.254) (type default))',
+        '\t\t\t\t\t(fill (type none))', '\t\t\t\t)',
+    )]
 
 
 def _library_property(name: str, value: str, x: float, y: float, rotation: int, *, hidden: bool) -> list[str]:
@@ -647,8 +703,8 @@ def _symbol_block(symbol: _PlacedSymbol, project_name: str, index: int) -> list[
         "\t\t(on_board yes)",
         "\t\t(dnp no)",
         f"\t\t(uuid {_q(_stable_uuid(project_name, key))})",
-        *_property_block("Reference", symbol.reference, x, y - 4.318, 0, hidden=False),
-        *_property_block("Value", symbol.value, x, y + 4.318, 0, hidden=False),
+        *_property_block("Reference", symbol.reference, x + symbol.label_x_offset, y - 4.318, 0, hidden=False),
+        *_property_block("Value", symbol.value, x + symbol.label_x_offset, y + 4.318, 0, hidden=False),
         *_property_block("Footprint", "", x, y, 0, hidden=True),
         *_property_block("Datasheet", "", x, y, 0, hidden=True),
         *_property_block("CircuitAI.Name", symbol.source_name, x, y + 7.62, 0, hidden=True),
@@ -688,12 +744,12 @@ def _property_block(name: str, value: str, x: float, y: float, rotation: int, *,
     return lines
 
 
-def _pin_connection_blocks(symbol: _PlacedSymbol, project_name: str, symbol_index: int) -> list[str]:
+def _pin_connection_blocks(symbol: _PlacedSymbol, project_name: str, symbol_index: int, *, normalize_ground: bool = True) -> list[str]:
     lines: list[str] = []
     for pin_index, pin in enumerate(symbol.pins, start=1):
         pin_point = symbol.position.add(pin.offset)
         label_point = symbol.position.add(pin.offset).add(pin.label_offset)
-        net = _node_name(pin.node)
+        net = _node_name(pin.node) if normalize_ground else pin.node
         key = f"{symbol_index}-{pin_index}-{symbol.reference}-{net}"
         lines.extend(
             [

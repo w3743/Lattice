@@ -1,0 +1,244 @@
+{
+  "graph": {
+    "schema": "circuit_ai.circuit_graph",
+    "schema_version": 1,
+    "graph_id": "lattice_rc",
+    "name": "lattice_rc",
+    "description": "LinearCircuit adapter output",
+    "family": "linear_ac",
+    "preferred_solver_ids": [
+      "linear_mna"
+    ],
+    "domains": [
+      {
+        "domain_id": "electrical",
+        "kind": "electrical",
+        "reference_net_id": "0",
+        "isolated_from": [],
+        "attributes": {}
+      }
+    ],
+    "ports": [
+      {
+        "port_id": "input",
+        "name": "input",
+        "direction": "input",
+        "domain_id": "electrical",
+        "terminals": [
+          {
+            "name": "positive",
+            "net_id": "IN",
+            "quantity": "voltage",
+            "role": "potential"
+          },
+          {
+            "name": "reference",
+            "net_id": "0",
+            "quantity": "ground",
+            "role": "reference"
+          }
+        ],
+        "attributes": {}
+      },
+      {
+        "port_id": "output",
+        "name": "output",
+        "direction": "output",
+        "domain_id": "electrical",
+        "terminals": [
+          {
+            "name": "positive",
+            "net_id": "OUT",
+            "quantity": "voltage",
+            "role": "potential"
+          },
+          {
+            "name": "reference",
+            "net_id": "0",
+            "quantity": "ground",
+            "role": "reference"
+          }
+        ],
+        "attributes": {}
+      }
+    ],
+    "nets": [
+      {
+        "net_id": "0",
+        "name": "0",
+        "domain_id": "electrical",
+        "kind": "reference",
+        "is_reference": true,
+        "attributes": {}
+      },
+      {
+        "net_id": "IN",
+        "name": "IN",
+        "domain_id": "electrical",
+        "kind": "signal",
+        "is_reference": false,
+        "attributes": {}
+      },
+      {
+        "net_id": "OUT",
+        "name": "OUT",
+        "domain_id": "electrical",
+        "kind": "signal",
+        "is_reference": false,
+        "attributes": {}
+      }
+    ],
+    "components": [
+      {
+        "instance_id": "R1",
+        "reference": "R1",
+        "model": {
+          "model_id": "builtin.linear.resistor",
+          "kind": "R",
+          "version": "1.0.0",
+          "source": "builtin",
+          "terminals": [
+            {
+              "name": "p",
+              "direction": "passive",
+              "domain": "electrical",
+              "quantity": "voltage"
+            },
+            {
+              "name": "n",
+              "direction": "passive",
+              "domain": "electrical",
+              "quantity": "voltage"
+            }
+          ]
+        },
+        "connections": [
+          {
+            "terminal": "p",
+            "net_id": "IN"
+          },
+          {
+            "terminal": "n",
+            "net_id": "OUT"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "value",
+            "unit": "ohm",
+            "value": 1000,
+            "variable_id": null,
+            "expression": null
+          }
+        ],
+        "ratings": [],
+        "attributes": {}
+      },
+      {
+        "instance_id": "C1",
+        "reference": "C1",
+        "model": {
+          "model_id": "builtin.linear.capacitor",
+          "kind": "C",
+          "version": "1.0.0",
+          "source": "builtin",
+          "terminals": [
+            {
+              "name": "p",
+              "direction": "passive",
+              "domain": "electrical",
+              "quantity": "voltage"
+            },
+            {
+              "name": "n",
+              "direction": "passive",
+              "domain": "electrical",
+              "quantity": "voltage"
+            }
+          ]
+        },
+        "connections": [
+          {
+            "terminal": "p",
+            "net_id": "OUT"
+          },
+          {
+            "terminal": "n",
+            "net_id": "0"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "value",
+            "unit": "F",
+            "value": 1e-07,
+            "variable_id": null,
+            "expression": null
+          }
+        ],
+        "ratings": [],
+        "attributes": {}
+      }
+    ],
+    "variables": [],
+    "provenance": [
+      {
+        "source": "LinearCircuit",
+        "source_id": "lattice_rc",
+        "version": "",
+        "details": {
+          "source_name": "Vin"
+        }
+      }
+    ],
+    "extensions": {}
+  },
+  "graph_hash": "dc19154f467b4b6ec9659445905ed471eb79106cff8afdf78d7199255d929423",
+  "devices": {
+    "R1": {
+      "library_uuid": "0819f05c4eef4c71ace90d822a990e87",
+      "device_uuid": "18db11499a04403ba8c98e2f7a687fbc",
+      "terminal_pins": {
+        "p": [
+          "1"
+        ],
+        "n": [
+          "2"
+        ]
+      },
+      "x": 350,
+      "y": 550,
+      "rotation": 0,
+      "expected_properties": {
+        "PARTTYPE": "0603WAF1001T5E",
+        "Supplier Part": "C21190",
+        "Value": "1kΩ",
+        "FOOTPRINT": "R0603"
+      }
+    },
+    "C1": {
+      "library_uuid": "0819f05c4eef4c71ace90d822a990e87",
+      "device_uuid": "96b39256cc3f4d80bd3b503deb4f3328",
+      "terminal_pins": {
+        "p": [
+          "1"
+        ],
+        "n": [
+          "2"
+        ]
+      },
+      "x": 500,
+      "y": 470,
+      "rotation": 90,
+      "expected_properties": {
+        "PARTTYPE": "CC0603KRX7R9BB104",
+        "Supplier Part": "C14663",
+        "Value": "100nF",
+        "FOOTPRINT": "C0603"
+      }
+    }
+  },
+  "net_names": {
+    "0": "GND"
+  }
+}

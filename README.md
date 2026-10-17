@@ -2,6 +2,23 @@
 
 **From a circuit requirement to a verifiable schematic.**
 
+## 当前目标与交付约定（2026-10-04）
+
+当前主线改为研究并验证 **Lattice 与嘉立创 EDA 专业版最新版协作**。
+Lattice 负责需求、候选电路和物理验证；嘉立创负责真实器件库、原理图编辑、
+设计规则检查及后续 PCB 工程。下一步优先验证原生工程往返与引脚/网络一致性。
+
+后续原理图优先交付经嘉立创客户端回读的原生工程；根据客户端实际支持选择
+`.epro` / `.epro2` 归档或 `.eprj3` 文件夹工程。SVG/PNG 仅作预览，**不输出 PDF**。
+现有 KiCad 导出保留兼容用途。RC 样例已完成嘉立创原生 `.epro2` 归档导出、
+重新导入及 `.eprj2` 关闭重开后的引脚/网络回读。重复网络名已修复，剩余两项
+警告来自外部 IN/GND 端口各只有一个器件引脚，严格 DRC 仍不算通过。
+已有显式器件库绑定的 `CircuitGraph` 可使用 `python -m circuit_ai.lceda_export`
+自动生成原生工程；示例输入为 `examples/lceda_rc.json`。综合候选尚未自动选取真实器件，
+不能把已有 KiCad 输出称为嘉立创工程。
+版本核对、接口差异、接入方案和验收条件见
+[`嘉立创协作研究与交付经验`](docs/嘉立创交付与工况审查经验.md)。
+
 Lattice takes a port/behaviour requirement plus an element library and produces
 a candidate circuit, an optimised parameter set, and an auditable evidence chain
 that records how each conclusion was reached:
@@ -43,10 +60,14 @@ Being explicit here matters more than sounding capable:
   networks, locked by `tests/test_external_spice.py` at a 0.1 dB bound.
   Earlier statements in this repository that no external verification was
   possible were wrong, because availability was checked on `PATH` only.
-- **Still not verified:** the exported KiCad files have never actually been
-  opened in KiCad, and nothing outside the linear R/C/L model set (active
-  devices, nonlinear, s-parameter, digital) exists to verify — so claims about
-  those remain unsupported.
+- **Library capabilities beyond synthesis:** nonlinear diode and channel-only
+  NMOS DC/small-signal AC, plus port S-parameters, have independent and ngspice
+  checks. Nonlinear devices also have a registered `CircuitGraph` simulation
+  backend; automated PBDL synthesis remains unwired.
+  S-parameters are currently a library API.
+  CircuitGraph KiCad exports have passed native KiCad CLI pin/net round-trip
+  checks, including nonlinear devices. GUI review, ERC and PCB validation
+  remain separate, unfinished checks; digital simulation remains unsupported.
 - **Not modelled:** magnetic core loss, semiconductor thermal behaviour,
   electromagnetic interference, and control-loop stability. The loss model
   reports `core_loss_modelled: false` rather than hiding the omission.
@@ -190,6 +211,9 @@ The architecture was informed by selected open-source analog-generation
 projects. See `docs/open_source_influences.md` for the audited revisions,
 licenses, adopted concepts, and reuse boundary.
 
+For practical lessons from generating and checking a multi-sheet EasyEDA
+handoff, see [`docs/嘉立创交付与工况审查经验.md`](docs/嘉立创交付与工况审查经验.md).
+
 ## Cost and area objectives
 
 Element libraries may include simple resource estimates:
@@ -272,10 +296,91 @@ What is verified, and what is not: the diode's forward, reverse, temperature,
 series-resistance, capacitance and breakdown-slope behaviour is checked against
 measured ngspice responses in `tests/test_nonlinear_devices.py`. The reference's
 *knee-voltage adjustment* for breakdown is not reproduced, and the tests say so
-rather than hiding it behind a loose tolerance. No other device kind exists yet —
-no BJT, MOSFET, op-amp or current mirror — so any active circuit beyond a diode
-is out of reach, and nothing here has been checked by any tool other than
-ngspice.
+rather than hiding it behind a loose tolerance. Physical BJT and op-amp models
+remain unsupported. External device comparisons currently use ngspice only.
+
+`NMOS` and `NMOSParameters` add a three-terminal long-channel MOS1 **channel**
+model: cutoff, triode, saturation, drain/source reversal, and channel-length
+modulation. Multi-terminal devices supply a current for every terminal and a
+full Jacobian; the Newton companion uses `J*v - I` and the AC solve uses `J`.
+Terminal names are resolved independently of their order, and contributions
+accumulate when pins share a node, such as a gate tied to its drain.
+
+```python
+from circuit_ai.devices import NMOS, NMOSParameters
+
+mos = NMOS("M1", "drain", "gate", "0", NMOSParameters(
+    threshold_voltage_v=1.0, transconductance_a_per_v2=1e-4,
+    width_m=10e-6, length_m=1e-6, channel_length_modulation_per_v=0.02,
+))
+# Add mos to NonlinearMNA with a LinearCircuit containing these nodes.
+# For AC, retain the DC OperatingPoint and supply a circuit with identical
+# topology/source ordering whose source values are the AC excitation amplitudes.
+```
+
+`tests/test_mosfet.py` checks independent load-line roots, terminal KCL, finite
+differences, a source follower, tied gate/drain, and common-source gain. Its live
+ngspice tests cover 348 DC points (including reverse channel operation) and 13
+AC frequencies with a capacitive load. The 2026-10-04 run measured maximum
+errors of `1.1e-11 A` and `1.7e-9 V`, respectively. The parameter meanings follow
+the [ngspice MOS1 documentation](https://ngspice.sourceforge.io/docs/ngspice-46-manual.pdf).
+
+This model has no bulk terminal/body effect, body diode, subthreshold leakage,
+intrinsic capacitance, series resistance, temperature dependence, or breakdown.
+It is a nominal channel model, not a vendor power-MOSFET model; it cannot verify
+switching losses, switching speed, ratings, or thermal safety. It is usable
+through Python and the unified simulation backend, not yet automatically
+generated from PBDL requirements.
+
+### Unified nonlinear simulation
+
+`simulation.nonlinear_mna` resolves by model/analysis, without a topology-family
+whitelist. It accepts the builtin `diode` and `nmos_channel` graph model IDs,
+R/C, independent sources and VCVS. It executes DC operating point and biased
+small-signal AC through `SimulationExecutor`, producing normal request/graph
+hashes, model manifests, operating-point residuals, quantities and waveforms.
+It does not currently accept inductors, transient analyses, vendor models or
+process corners. NMOS requests must explicitly select 27 C; diode temperature
+comes from `OperatingConditions`.
+
+Fixed source values are DC biases. `ac_voltage`/`ac_current` excitations supply
+separate magnitudes and phases; unexcited sources are zero in AC. Parameter and
+observable units are converted, including variable-bound device parameters.
+The result always identifies its fidelity as `nonlinear_device`, never `spice`.
+
+```python
+from dataclasses import replace
+from circuit_ai.graph import (
+    ComponentInstance, TerminalConnection, linear_circuit_to_graph, primitive_model_ref,
+)
+from circuit_ai.mna import LinearCircuit, LinearElement, VoltageSource
+from circuit_ai.simulation import (
+    AnalysisSpec, NonlinearMNASimulatorBackend, ObservableSpec, OperatingConditions,
+    SimulationExecutor, SimulationRequest,
+)
+
+circuit = LinearCircuit(
+    elements=(LinearElement("RD", "R", "vdd", "d", 1000.0),),
+    voltage_sources=(VoltageSource("VD", "vdd", "0", 5.0),
+                     VoltageSource("VG", "g", "0", 3.5)),
+)
+graph = linear_circuit_to_graph(circuit, input_node="g", output_node="d")
+mos = ComponentInstance("M1", "M1", primitive_model_ref("nmos_channel"), (
+    TerminalConnection("drain", "d"), TerminalConnection("gate", "g"),
+    TerminalConnection("source", "0"),
+))
+graph = replace(graph, components=graph.components + (mos,),
+                preferred_solver_ids=("nonlinear_mna",))
+request = SimulationRequest(
+    request_id="bias", graph_id=graph.graph_id, analysis=AnalysisSpec("dc_operating_point"),
+    conditions=OperatingConditions(temperature_c=27),
+    requested_observables=(ObservableSpec("vout", "voltage", "V", "port", "output"),),
+)
+result, = SimulationExecutor().execute(NonlinearMNASimulatorBackend(), graph, (request,))
+assert result.status.value == "passed"
+print(result.scalars["vout"].value)  # 2.0 V
+# result.as_dict() is the standard serializable evidence contract.
+```
 
 ## S-parameters
 
@@ -436,8 +541,8 @@ sized against a range and judged on real efficiency instead of an idealised 1.0:
   (100 uF without a budget, ~900 uF with a 50 mV budget) rather than only adding
   a label.
 
-Nothing here claims the export has been verified by KiCad or ngspice; neither is
-installed in this environment.
+The envelope and load-step budget checks do not establish KiCad import or
+switching-SPICE verification. External linear/device checks are described above.
 
 Omitting both blocks reproduces the previous behaviour byte for byte:
 `operating_envelope` and `worst_case` are `null`.

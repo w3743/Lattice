@@ -1,0 +1,148 @@
+PROTEL NETLIST 2.0
+[
+DESIGNATOR
+R1
+FOOTPRINT
+R0603
+PARTTYPE
+0603WAF1001T5E
+DESCRIPTION
+电阻类型:厚膜电阻;阻值:1kΩ;精度:±1%;功率:100mW;工作电压:75V;温度系数:±100ppm/℃;
+Component Kind
+Standard
+Add into BOM
+yes
+Convert to PCB
+yes
+Device
+0603WAF1001T5E
+PCB Layer
+Default
+Symbol
+0603WAF1001T5E
+Designator
+R1
+Unique ID
+gge1
+Name
+1kΩ
+Reuse Block
+
+Group ID
+
+Channel ID
+
+Manufacturer
+UNI-ROYAL(厚声)
+Manufacturer Part
+0603WAF1001T5E
+Supplier
+LCSC
+Supplier Part
+C21190
+LCSC Part Name
+1kΩ ±1% 100mW 厚膜电阻
+Supplier Footprint
+0603
+JLCPCB Part Class
+Basic Part
+Datasheet
+https://item.szlcsc.com/datasheet/0603WAF1001T5E/21904.html
+Type
+厚膜电阻
+Value
+1kΩ
+Tolerance
+±1%
+Power(Watts)
+100mW
+Voltage-Supply(Max)
+75V
+Temperature Coefficient
+±100ppm/℃
+Operating Temperature
+-55℃~+155℃
+Description
+电阻类型:厚膜电阻;阻值:1kΩ;精度:±1%;功率:100mW;工作电压:75V;温度系数:±100ppm/℃;
+3D Model Title
+R0603
+
+*
+]
+[
+DESIGNATOR
+C1
+FOOTPRINT
+C0603
+PARTTYPE
+CC0603KRX7R9BB104
+DESCRIPTION
+容值:100nF;精度:±10%;额定电压:50V;温度系数:X7R;
+Component Kind
+Standard
+Add into BOM
+yes
+Convert to PCB
+yes
+Device
+CC0603KRX7R9BB104
+PCB Layer
+Default
+Name
+100nF
+Designator
+C1
+Symbol
+CC0603KRX7R9BB104
+Unique ID
+gge2
+Reuse Block
+
+Group ID
+
+Channel ID
+
+Manufacturer
+YAGEO(国巨)
+Manufacturer Part
+CC0603KRX7R9BB104
+Supplier
+LCSC
+Supplier Part
+C14663
+LCSC Part Name
+100nF ±10% 50V
+Supplier Footprint
+0603
+JLCPCB Part Class
+Basic Part
+Datasheet
+https://item.szlcsc.com/datasheet/CC0603KRX7R9BB104/15331.html
+Value
+100nF
+Tolerance
+±10%
+Voltage Rating
+50V
+Temperature Coefficient
+X7R
+Description
+容值:100nF;精度:±10%;额定电压:50V;温度系数:X7R;
+3D Model Title
+C0603_L1.6-W0.8-H0.8
+
+*
+]
+(
+OUT 
+R1-2 0603WAF1001T5E-2 Input   
+C1-1 CC0603KRX7R9BB104-1 Passive 
+)
+(
+IN 
+R1-1 0603WAF1001T5E-1 Input   
+)
+(
+GND 
+C1-2 CC0603KRX7R9BB104-2 Passive 
+)

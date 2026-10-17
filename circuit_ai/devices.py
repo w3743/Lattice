@@ -65,13 +65,17 @@ class NonlinearStamp:
 
     ``current`` is the device current, positive flowing from the positive
     terminal to the negative terminal through the device, and ``conductance`` is
-    ``d(current)/d(voltage)`` for a two-terminal device.  ``jacobian`` carries the
-    full derivative for a device controlled by more than one voltage.
+    ``d(current)/d(voltage)`` for a two-terminal device.  Multi-terminal devices
+    instead provide ``terminal_currents`` (positive into the device) and the full
+    ``jacobian[(current_terminal, voltage_terminal)]``. These keys are terminal
+    names declared by ``terminals()``, not circuit node names. In that form the
+    scalar current/conductance are informational and are not stamped again.
     """
 
     current: float
     conductance: float
     jacobian: Mapping[tuple[str, str], float] = field(default_factory=dict)
+    terminal_currents: Mapping[str, float] = field(default_factory=dict)
 
 
 class NonlinearDevice:
@@ -639,12 +643,100 @@ class Diode(NonlinearDevice):
         return capacitance
 
 
+@dataclass(frozen=True)
+class NMOSParameters:
+    """Long-channel NMOS channel parameters (ngspice MOS1 notation).
+
+    This is the fixed-temperature, GAMMA=0 channel only: no body junction,
+    subthreshold leakage, capacitance, series resistance, or thermal model.
+    It must not be used as a power-MOSFET switching or device-rating model.
+    """
+
+    threshold_voltage_v: float = 1.0  # VTO
+    transconductance_a_per_v2: float = 1e-4  # KP
+    width_m: float = 10e-6
+    length_m: float = 1e-6
+    channel_length_modulation_per_v: float = 0.0  # LAMBDA
+
+    def __post_init__(self) -> None:
+        for name in self.__dataclass_fields__:
+            value = getattr(self, name)
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be finite")
+        for name in ("transconductance_a_per_v2", "width_m", "length_m"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if self.channel_length_modulation_per_v < 0:
+            raise ValueError("channel_length_modulation_per_v must not be negative")
+
+
+@dataclass(frozen=True)
+class NMOS(NonlinearDevice):
+    """Three-terminal, bidirectional MOS1 channel; see NMOSParameters for limits.
+
+    Drain/gate/source constructor order matches a SPICE instance, excluding the
+    unmodelled bulk. DC and small-signal AC share the same analytic Jacobian.
+    """
+
+    name: str
+    drain: str
+    gate: str
+    source: str
+    parameters: NMOSParameters = field(default_factory=NMOSParameters)
+
+    def terminals(self) -> tuple[tuple[str, str], ...]:
+        return ((self.drain, "drain"), (self.gate, "gate"), (self.source, "source"))
+
+    def stamp(self, voltages: Mapping[str, float]) -> NonlinearStamp:
+        vd, vg, vs = (float(voltages[key]) for key in ("drain", "gate", "source"))
+        if not all(np.isfinite(value) for value in (vd, vg, vs)):
+            raise ConvergenceError(f"device {self.name!r} received non-finite voltages")
+        # Reverse operation swaps the channel ends, not the public pin mapping.
+        forward = vd >= vs
+        high, low = (vd, vs) if forward else (vs, vd)
+        vds = high - low
+        overdrive = vg - low - self.parameters.threshold_voltage_v
+        beta = self.parameters.transconductance_a_per_v2 * (
+            self.parameters.width_m / self.parameters.length_m
+        )
+        lam = self.parameters.channel_length_modulation_per_v
+        factor = 1.0 + lam * vds
+        if overdrive <= 0:
+            channel, gm, gds = 0.0, 0.0, 0.0
+        elif vds < overdrive:
+            unmodulated = beta * (overdrive * vds - 0.5 * vds**2)
+            channel = unmodulated * factor
+            gm = beta * vds * factor
+            gds = beta * (overdrive - vds) * factor + lam * unmodulated
+        else:
+            unmodulated = 0.5 * beta * overdrive**2
+            channel = unmodulated * factor
+            gm = beta * overdrive * factor
+            gds = lam * unmodulated
+        if forward:
+            current = channel
+            derivatives = {"drain": gds, "gate": gm, "source": -gds - gm}
+        else:
+            current = -channel
+            derivatives = {"drain": gds + gm, "gate": -gm, "source": -gds}
+        jacobian = {("drain", key): value for key, value in derivatives.items()}
+        jacobian.update({("source", key): -value for key, value in derivatives.items()})
+        return NonlinearStamp(
+            current=current,
+            conductance=gds,
+            jacobian=jacobian,
+            terminal_currents={"drain": current, "gate": 0.0, "source": -current},
+        )
+
+
 __all__ = [
     "BOLTZMANN_J_PER_K",
     "ELECTRON_CHARGE_C",
     "ConvergenceError",
     "Diode",
     "DiodeParameters",
+    "NMOS",
+    "NMOSParameters",
     "NonlinearDevice",
     "NonlinearStamp",
     "junction_limiting_voltage",
